@@ -14,28 +14,35 @@ use super::{
     model::{
         DocumentId, DocumentRecord, DocumentStatus, LibraryError, LibraryErrorCode, LibraryResult,
         ScanEvent, ScanEventKind, ScanJobId, ScanJobState, ScanSummary, SourceKind,
-        SourceRegistration, SourceRootId, new_identifier, now_unix_ms,
+        SourceRegistration, SourceRootId, WatchPollResult, WatchStatus, new_identifier,
+        now_unix_ms,
     },
     policy::{
         AuthorizedSource, authorize_candidate, authorize_source, canonical_path_string,
         exclusion_reason, format_from_path,
     },
+    watcher::LibraryWatcher,
 };
 
 pub(crate) struct LibraryService {
     pub(crate) database: LibraryDatabase,
+    watchers: HashMap<SourceRootId, LibraryWatcher>,
 }
 
 impl LibraryService {
     pub(crate) fn open(path: impl AsRef<Path>) -> LibraryResult<Self> {
         let mut database = LibraryDatabase::open(path)?;
         database.recover_running_jobs()?;
-        Ok(Self { database })
+        Ok(Self {
+            database,
+            watchers: HashMap::new(),
+        })
     }
 
     pub(crate) fn in_memory() -> LibraryResult<Self> {
         Ok(Self {
             database: LibraryDatabase::in_memory()?,
+            watchers: HashMap::new(),
         })
     }
 
@@ -192,6 +199,51 @@ impl LibraryService {
             (failed_count > 0).then_some("SCAN_FILE_FAILED"),
         )?;
         Ok(ScanSummary { job, events })
+    }
+
+    pub(crate) fn watch_source(
+        &mut self,
+        source_root_id: &SourceRootId,
+    ) -> LibraryResult<WatchStatus> {
+        let source_record = self.database.source_by_id(source_root_id)?.ok_or_else(|| {
+            LibraryError::new(
+                LibraryErrorCode::SourceNotFound,
+                "source root was not found",
+            )
+        })?;
+        let source = authorize_source(&source_record.canonical_path)?;
+        self.watchers
+            .insert(source_root_id.clone(), LibraryWatcher::start(source)?);
+        Ok(WatchStatus {
+            source_root_id: source_root_id.clone(),
+            running: true,
+        })
+    }
+
+    pub(crate) fn poll_watch(
+        &mut self,
+        source_root_id: &SourceRootId,
+    ) -> LibraryResult<WatchPollResult> {
+        let changed = {
+            let watcher = self.watchers.get(source_root_id).ok_or_else(|| {
+                LibraryError::new(
+                    LibraryErrorCode::WatcherUnavailable,
+                    "source watcher is not running",
+                )
+                .retryable()
+            })?;
+            !watcher.drain().is_empty()
+        };
+        let scan = if changed {
+            Some(self.scan_source(source_root_id)?)
+        } else {
+            None
+        };
+        Ok(WatchPollResult {
+            source_root_id: source_root_id.clone(),
+            changed,
+            scan,
+        })
     }
 
     fn reconcile_file(

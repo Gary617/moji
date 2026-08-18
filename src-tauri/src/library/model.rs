@@ -264,6 +264,21 @@ pub struct ScanSummary {
     pub events: Vec<ScanEvent>,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchStatus {
+    pub source_root_id: SourceRootId,
+    pub running: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchPollResult {
+    pub source_root_id: SourceRootId,
+    pub changed: bool,
+    pub scan: Option<ScanSummary>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LibraryErrorCode {
     InvalidArgument,

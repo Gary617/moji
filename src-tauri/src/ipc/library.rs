@@ -7,7 +7,7 @@ use tauri::State;
 use crate::library::{
     model::{
         LibraryError, LibraryErrorCode, LibraryResult, ScanJobId, ScanJobRecord, ScanSummary,
-        SourceRegistration, SourceRootId,
+        SourceRegistration, SourceRootId, WatchPollResult, WatchStatus,
     },
     queue::ScanQueue,
     scanner::LibraryService,
@@ -126,6 +126,24 @@ pub(crate) fn library_retry_scan(
     state: State<'_, LibraryState>,
 ) -> IpcResponse<ScanJobRecord> {
     transition_job(&state, request, |queue, id| queue.retry(id))
+}
+
+#[tauri::command]
+pub(crate) fn library_start_watch(
+    request: ScanRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<WatchStatus> {
+    let source_id = SourceRootId(request.source_root_id);
+    with_service(&state, |service| service.watch_source(&source_id))
+}
+
+#[tauri::command]
+pub(crate) fn library_poll_watch(
+    request: ScanRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<WatchPollResult> {
+    let source_id = SourceRootId(request.source_root_id);
+    with_service(&state, |service| service.poll_watch(&source_id))
 }
 
 fn transition_job<F>(

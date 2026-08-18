@@ -33,7 +33,9 @@ pub fn run() {
             ipc::library::library_pause_scan,
             ipc::library::library_resume_scan,
             ipc::library::library_cancel_scan,
-            ipc::library::library_retry_scan
+            ipc::library::library_retry_scan,
+            ipc::library::library_start_watch,
+            ipc::library::library_poll_watch
         ])
         .run(tauri::generate_context!())
         .expect("failed to run the Tauri application");
