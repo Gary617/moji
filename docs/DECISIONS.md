@@ -84,3 +84,27 @@
 - 状态：已接受
 - 决策：24 个代表性 DOCX/PPTX/XLSX 夹具在真实浏览器 ZetaOffice runtime 中全部通过打开、修改、OOXML filter 另存、关闭、重开、编辑标记、主部件和源 SHA-256 校验；另有真实产品方案 DOCX smoke sample 通过。POC 结论为 `PASS`。
 - 边界：该 PASS 证明浏览器 worker 的格式回环，不证明所有真实用户文件的视觉保真、不证明离线 CDN 可用，也不替代 Node/Tauri WebView2 自动化 runner。
+
+## D-013 本地资料库使用 migration v1 的内置 SQLite
+
+- 日期：2026-08-19
+- 状态：已接受
+- 决策：使用 `rusqlite 0.40.2` 的 `bundled` SQLite，在应用数据目录创建 `library.sqlite3`，以 `PRAGMA user_version = 1` 管理 `source_roots`、`documents`、`scan_jobs`、`scan_events`。migration 可重复运行，不删除已有记录。
+- 理由：资料库必须离线、可测试且不依赖用户安装的 SQLite。Document、SourceRoot 和 ScanJob 均使用独立稳定 ID，避免以绝对路径作为跨模块主键。
+- 边界：本期不加密数据库、不做全文索引或正文提取；SQLCipher 和 FTS5 分别属于安全和搜索工期。
+
+## D-014 扫描只处理显式授权来源并默认排除高风险路径
+
+- 日期：2026-08-19
+- 状态：已接受
+- 决策：授权来源必须 canonicalize；目录扫描仅限授权根，单文件仅限该文件。隐藏/系统/回收站/`node_modules`、符号链接/Junction/reparse point 默认跳过，原因写入 `ScanEvent`。扫描器绝不移动、复制、重命名或删除用户文件。
+- 理由：目录遍历是本地应用最直接的权限边界，必须在进入队列前固定授权范围并避开可越界的 Junction。
+- 边界：Windows File ID 是重命名首选键；哈希仅在唯一的失效路径候选中辅助重定位，不能把同内容的不同文件合并。
+
+## D-015 扫描任务持久化且重启后停在可恢复状态
+
+- 日期：2026-08-19
+- 状态：已接受
+- 决策：`ScanJob` 持久化 `queued|running|paused|cancelled|failed|completed`、进度、错误和重试次数。应用重开时所有 `running` 任务归一为 `paused`，需要显式恢复；`notify` 事件只在授权过滤后触发增量扫描请求。
+- 理由：进程退出不能让前端认为任务仍在运行；明确的状态转换让暂停、取消和失败重试可测试。
+- 边界：本期提供 `notify` watcher adapter，不启动产品级常驻调度循环；后续队列执行器必须复用同一状态机。
