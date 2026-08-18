@@ -2,7 +2,7 @@
 
 - 阶段状态: complete
 - 实现提交: `169c468` (`feat: add authorized local document indexer`)、`2abe564` (`feat: connect filesystem watcher polling`)
-- 交接文档提交: `20141ff`、`755bc8c`
+- 交接文档提交: `20141ff`、`755bc8c`、`add0048`
 - 目标: 建立不移动原文件的本地资料库、授权来源、增量扫描和可恢复扫描任务。
 - 已完成:
   - SQLite migration v1（内置 SQLite）和 `source_roots`、`documents`、`scan_jobs`、`scan_events` 表。
