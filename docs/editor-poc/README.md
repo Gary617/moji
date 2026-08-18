@@ -1,0 +1,40 @@
+# Office Editor POC
+
+This POC keeps Office editing behind `EditorAdapter`. The production boundary is `src/editor/zetaOfficeAdapter.ts`; callers do not use UNO or zetajs objects directly. `MockEditorAdapter` is contract-test evidence only and is never counted as a ZetaOffice result.
+
+## Official sources checked on 2026-08-18
+
+| Source | Version / status | License and Windows fact |
+| --- | --- | --- |
+| [allotropia/zetajs README](https://github.com/allotropia/zetajs) | Latest GitHub release `v1.2.0`, published 2025-06-11 | MIT; browser JavaScript wrapper over ZetaOffice/LibreOffice UNO |
+| [zetajs package.json](https://raw.githubusercontent.com/allotropia/zetajs/v1.2.0/package.json) | npm `zetajs@1.2.0` | MIT; exports `zeta.js` and `zetaHelper.js` |
+| [zetajs starting points](https://raw.githubusercontent.com/allotropia/zetajs/main/docs/start.md) | Current main documentation | Requires a `Module.zetajs` Promise; plain builds require an HTML canvas and worker integration |
+| [ZetaOffice official site](https://zetaoffice.net/) | Open beta, checked 2026-08-18 | Based on LibreOffice; site advertises native Windows 64-bit, 32-bit and ARM64 desktop downloads plus browser/CDN/self-hosted deployment |
+
+The checked-in dependency is `zetajs` `1.2.0`. The repository does not bundle ZetaOffice binaries. On a machine without a configured runtime bridge, the POC records `ZETA_RUNTIME_UNAVAILABLE` and `BLOCKED`; it never substitutes the mock or claims a round trip.
+
+## Reproduce
+
+```powershell
+pnpm install --frozen-lockfile
+pnpm generate:office-fixtures
+pnpm test:editor-poc
+```
+
+The runner copies each fixture to a temporary directory before saving. It validates the output as an OOXML ZIP, closes it, reopens it in read-only mode, compares the preview marker, and verifies the source SHA-256 is unchanged. Results are written to `docs/editor-poc/results.json` and `docs/editor-poc/results.md`.
+
+The runner exits `0` only for `PASS`; `DEGRADED` or `BLOCKED` sets child exit code `2` after writing both reports (pnpm may normalize the lifecycle exit to `1`) so CI cannot treat a blocked editor as a passing gate.
+
+To run against a real browser/worker bridge, provide a module exporting a `ZetaOfficeRuntime`-compatible object:
+
+```powershell
+node --experimental-strip-types scripts/run-editor-poc.ts --runtime=C:\path\to\zeta-runtime-bridge.mjs
+```
+
+The bridge is the only place that may call `Module.zetajs`, `loadComponentFromURL`, UNO edit methods, and `storeAsURL`. `createZetaJsRuntime()` in `src/editor/zetaOfficeAdapter.ts` adapts a resolved `Module.zetajs` object to the stable runtime shape. The bridge must preserve the source path and throw on failed open/edit/save/reopen operations.
+
+## Fallback policy
+
+- `PASS`: open, edit, save-as, close, reopen, preview marker, output package and source hash all validate.
+- `DEGRADED`: the file round-trips but the adapter reports a warning or the reopened preview requires manual review.
+- `FAIL`: an operation or integrity check fails. The source fixture is never overwritten. The result includes a stable error code and either an available read-only fallback or an explicit unavailable fallback.

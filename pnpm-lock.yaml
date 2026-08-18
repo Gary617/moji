@@ -20,6 +20,9 @@ importers:
       react-dom:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
+      zetajs:
+        specifier: 1.2.0
+        version: 1.2.0
     devDependencies:
       '@tauri-apps/cli':
         specifier: 2.11.4
@@ -985,6 +988,9 @@ packages:
   xmlchars@2.2.0:
     resolution: {integrity: sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw==}
 
+  zetajs@1.2.0:
+    resolution: {integrity: sha512-lAY5Q7qvvGYlmsMyuAByL/re9uIbDmJhHLXvF2FNhOdnv8V1/jUTS5EwIB6dAohFtzrd9HhP//5eoAvNGc9hPA==}
+
 snapshots:
 
   '@adobe/css-tools@4.5.0': {}
@@ -1682,3 +1688,5 @@ snapshots:
   xml-name-validator@5.0.0: {}
 
   xmlchars@2.2.0: {}
+
+  zetajs@1.2.0: {}

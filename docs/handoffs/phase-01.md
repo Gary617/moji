@@ -1,0 +1,55 @@
+# Phase 01 Handoff
+
+- 阶段状态: blocked
+- 当前提交: 见本分支最后一个 `feat: validate office editor integration` 提交（提交后用 `git log -1 --format=%H` 核对）
+- 目标: 在 Tauri/WebView2 边界验证 ZetaOffice/zetajs 对 DOCX、PPTX、XLSX 的真实 round-trip，并冻结可替换 EditorAdapter 契约。
+- 已完成:
+  - `EditorAdapter` 六方法契约、稳定错误码、PASS/DEGRADED/FAIL 和只读回退模型。
+  - `ZetaOfficeAdapter`、`UnavailableZetaOfficeRuntime`、`createZetaJsRuntime` bridge 和仅用于契约测试的 `MockEditorAdapter`。
+  - DOCX/PPTX/XLSX 各 8 个、共 24 个确定性 OOXML 夹具，覆盖表格、图片、批注、图表、中文字体、复杂排版、页眉页脚、公式和多页。
+  - round-trip runner：打开 -> 修改 -> 另存 -> 关闭 -> 重开 -> 只读摘要/ZIP/源哈希校验；失败不写源文件。
+  - 官方资料、依赖版本/许可证、Windows 支持和 POC 结果记录。
+- 改动文件:
+  - `src/editor/types.ts`
+  - `src/editor/errors.ts`
+  - `src/editor/mockAdapter.ts`
+  - `src/editor/zetaOfficeAdapter.ts`
+  - `src/editor/index.ts`
+  - `tests/frontend/editor-adapter.test.ts`
+  - `tests/fixtures/office/manifest.json` 和 `tests/fixtures/office/generated/*`（24 个）
+  - `scripts/generate-office-fixtures.mjs`
+  - `scripts/run-editor-poc.ts`
+  - `docs/editor-poc/README.md`、`docs/editor-poc/results.{json,md}`
+  - `docs/PROJECT_CONTEXT.md`、`docs/STATUS.md`、`docs/DECISIONS.md`、`docs/TEST_MATRIX.md`
+- 稳定接口/表结构:
+  - `EditorAdapter` 位于 `src/editor/types.ts`，方法为 `healthCheck`、`open`、`readOnlyPreview`、`edit`、`saveAs`、`close`。
+  - `ZetaOfficeRuntime` 是唯一 runtime bridge；下一阶段禁止直接依赖 `Module.zetajs`、UNO model 或 `zetajs` 内部对象。
+  - `saveAs` 必须写入临时/新目标，源文件哈希在 round-trip 前后保持不变。
+- 验证命令:
+  - `pnpm install --frozen-lockfile`
+  - `pnpm test`
+  - `pnpm test:rust`（显式 PATH 加入 `C:\Users\Gary\.cargo\bin`）
+  - `pnpm build`
+  - `pnpm generate:office-fixtures`
+  - `pnpm test:editor-poc`
+- 验证结果:
+  - 前端 7/7 PASS；Rust 3/3 PASS；生产构建 PASS。
+  - 夹具生成 24/24，均为可列举 ZIP/OOXML。
+  - 真实 POC: 24 total，PASS 0，DEGRADED 0，FAIL 24；统一原因 `ZETA_RUNTIME_UNAVAILABLE`，结论 `BLOCKED`，runner 子进程退出码 2（pnpm 生命周期可能显示 1）。
+  - 24 条失败均 `writeAttempted: false`，源文件未覆盖；错误含 `read-only-preview` 回退。
+- 已知问题:
+  - 当前机器没有 ZetaOffice/LibreOffice 安装，也没有 WebView2 worker 的 `Module.zetajs` runtime bridge，因此不能证明真实打开、修改、保存、重开。
+  - 生成夹具是结构化 POC 输入，不等同于真实用户文件；真实 runtime 接入后必须重新跑完整矩阵，并保留每个样本的内容/视觉核对证据。
+  - 系统 PATH Node `24.13.0` 低于要求，验收必须使用工作区 Node `24.19.0`；全局 Rust 不在 PATH，需显式加入 Rustup bin。
+- 明确未做:
+  - 未接入目录扫描、数据库、索引、OCR、AI、正式版本库、Office UI 或文件移动/删除。
+  - 未把 mock 结果当成 POC 通过证据；未实现静默源文件写回。
+- 下一窗口第一步:
+  - 先读取本文件和 `docs/editor-poc/results.md`，安装/配置可复现的 ZetaOffice Windows runtime bridge，然后运行 `pnpm test:editor-poc`；不要默认 Office 写回已可用。
+- 下一阶段禁止改变:
+  - 不得让索引/业务模块调用 `zetajs` 或 UNO 内部 API；只能依赖 `EditorAdapter`。
+  - 不得删除 FAIL 样本、把 runtime 缺失改写为 DEGRADED/PASS，或在保存失败时覆盖原文件。
+- BLOCKED 决策选项:
+  - 更换编辑器并重新做 POC。
+  - 首版只读，保留 `readOnlyPreview`，延后写回。
+  - 延后 Office 写回，工期 2 只实现不依赖写回的能力。

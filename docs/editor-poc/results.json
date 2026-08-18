@@ -1,0 +1,543 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-18T15:59:53.395Z",
+  "conclusion": "BLOCKED",
+  "runtimeHealth": {
+    "status": "error",
+    "outcome": "FAIL",
+    "error": {
+      "code": "ZETA_RUNTIME_UNAVAILABLE",
+      "message": "ZetaOffice/zetajs 运行时不可用",
+      "retryable": true,
+      "details": {
+        "cause": "ZetaOffice/zetajs runtime is not configured"
+      },
+      "fallback": {
+        "mode": "read-only-preview",
+        "available": false,
+        "reason": "未配置 ZetaOffice 运行时"
+      }
+    }
+  },
+  "runDirectory": "<temporary>",
+  "summary": {
+    "total": 24,
+    "pass": 0,
+    "degraded": 0,
+    "fail": 24
+  },
+  "samples": [
+    {
+      "id": "docx-basic",
+      "format": "docx",
+      "features": [
+        "正文"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/docx-basic.docx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "b5dfadaf3d7776cc6285abc6740e4dcaeb1a0f663f6358d3e79fc0f91e752b3a",
+      "writeAttempted": false
+    },
+    {
+      "id": "docx-table",
+      "format": "docx",
+      "features": [
+        "表格"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/docx-table.docx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "2913abf53717061c5724ca45f0ffdd9de227d178d8fbda23a21ee5135ec2e151",
+      "writeAttempted": false
+    },
+    {
+      "id": "docx-image",
+      "format": "docx",
+      "features": [
+        "图片"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/docx-image.docx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "22d35cd5b26b5c6526d7bc5a7b85d94a9bb7c9492882db38bfc64daa5e2c0180",
+      "writeAttempted": false
+    },
+    {
+      "id": "docx-comments",
+      "format": "docx",
+      "features": [
+        "批注"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/docx-comments.docx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "776a5ec27310eed7d7f6ff281cb8f71be1eeb65caf3c86186136f9437a6d21f7",
+      "writeAttempted": false
+    },
+    {
+      "id": "docx-cjk-font",
+      "format": "docx",
+      "features": [
+        "中文字体"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/docx-cjk-font.docx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "f46bc4f95a0f1b9f683a888069c2837bebdfc2a613eaba9e6bc555baba3ccbae",
+      "writeAttempted": false
+    },
+    {
+      "id": "docx-complex-layout",
+      "format": "docx",
+      "features": [
+        "复杂排版",
+        "页眉页脚"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/docx-complex-layout.docx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "9351f3267303916e1129901647631fd5dfa9b4a81bfebe28ae4cfe6a9d5e9658",
+      "writeAttempted": false
+    },
+    {
+      "id": "docx-header-footer",
+      "format": "docx",
+      "features": [
+        "页眉页脚"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/docx-header-footer.docx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "4ee744b95597da9f2b54cc78fbff1d34f57aef3c3469da2245bc1ea39499fc4f",
+      "writeAttempted": false
+    },
+    {
+      "id": "docx-long-text",
+      "format": "docx",
+      "features": [
+        "长文本",
+        "中文字体"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/docx-long-text.docx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "10b09f93f1549c6f46c177abbd370864d3bcc5fb7407b19f200dd424135c4c55",
+      "writeAttempted": false
+    },
+    {
+      "id": "pptx-basic",
+      "format": "pptx",
+      "features": [
+        "单页演示"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/pptx-basic.pptx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "78d5b4e3d70e0a00bc410c6a0467e875fb68b06e23f31749bb3bdb7cdb427068",
+      "writeAttempted": false
+    },
+    {
+      "id": "pptx-table",
+      "format": "pptx",
+      "features": [
+        "表格"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/pptx-table.pptx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "d131a38e8342188dbd1a7f3dd3b142a61fc598b9e142bbc8f9de4d8fd381cffa",
+      "writeAttempted": false
+    },
+    {
+      "id": "pptx-image",
+      "format": "pptx",
+      "features": [
+        "图片"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/pptx-image.pptx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "d1004d27f6e396ee89e7eddbc38e439cc0c476d46ee77616948b94864d1e9992",
+      "writeAttempted": false
+    },
+    {
+      "id": "pptx-chart",
+      "format": "pptx",
+      "features": [
+        "图表"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/pptx-chart.pptx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "44cde99765e7f253aa420da660fbc5c4ad56009af3edd0d4c9b0838fc379824a",
+      "writeAttempted": false
+    },
+    {
+      "id": "pptx-comments",
+      "format": "pptx",
+      "features": [
+        "批注"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/pptx-comments.pptx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "2af0adcbe2ea44c278d3cd41e1a96957993e97a483c621613279256f2aee7a30",
+      "writeAttempted": false
+    },
+    {
+      "id": "pptx-cjk-font",
+      "format": "pptx",
+      "features": [
+        "中文字体"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/pptx-cjk-font.pptx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "f19f856ad61c91ecfbea61e3e6af53d0b1aceb7f96c0c77dc9891e35a64355b4",
+      "writeAttempted": false
+    },
+    {
+      "id": "pptx-complex-layout",
+      "format": "pptx",
+      "features": [
+        "复杂排版",
+        "多页"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/pptx-complex-layout.pptx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "58f989ae2eee37a1c6e5d680e2a61243c33e50761c73cabec9f1ea2602943af0",
+      "writeAttempted": false
+    },
+    {
+      "id": "pptx-multi-slide",
+      "format": "pptx",
+      "features": [
+        "多页",
+        "图片",
+        "图表"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/pptx-multi-slide.pptx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "c2b2498098cf666e95f54792f00780fce97ad21fd3163f2c8bef9d4bc9583914",
+      "writeAttempted": false
+    },
+    {
+      "id": "xlsx-basic",
+      "format": "xlsx",
+      "features": [
+        "单表"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/xlsx-basic.xlsx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "2e0d4cb31d0d6698328ff7e899ccd59cda2bb53b58f3dc42d5d9195a75f406ed",
+      "writeAttempted": false
+    },
+    {
+      "id": "xlsx-table",
+      "format": "xlsx",
+      "features": [
+        "表格"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/xlsx-table.xlsx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "99d49453a1ce4a1c8542721ad021f47291849910d92950be6c7481ee022f2b48",
+      "writeAttempted": false
+    },
+    {
+      "id": "xlsx-image",
+      "format": "xlsx",
+      "features": [
+        "图片"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/xlsx-image.xlsx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "c3b2a36c9e5c9008b14f7a36ae6ae3874f692282eb41aa5245e7cb4ec85fac84",
+      "writeAttempted": false
+    },
+    {
+      "id": "xlsx-chart",
+      "format": "xlsx",
+      "features": [
+        "图表"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/xlsx-chart.xlsx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "48cc6b51ef69f032446fb94aa0cddd4e4905ecfd53d241d924f6299a16b26032",
+      "writeAttempted": false
+    },
+    {
+      "id": "xlsx-comments",
+      "format": "xlsx",
+      "features": [
+        "批注"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/xlsx-comments.xlsx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "b91fe7f6bc8e635a3d8ec853787d328bdf2c9a3f608a7a0dfa93143f89561203",
+      "writeAttempted": false
+    },
+    {
+      "id": "xlsx-cjk-font",
+      "format": "xlsx",
+      "features": [
+        "中文字体"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/xlsx-cjk-font.xlsx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "2456a762ac8ec1793c6696f51db464136c79875ef4ae9bd126910e1879cd8158",
+      "writeAttempted": false
+    },
+    {
+      "id": "xlsx-complex-layout",
+      "format": "xlsx",
+      "features": [
+        "复杂排版",
+        "合并单元格"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/xlsx-complex-layout.xlsx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "d0bfd2b48d3d8aa71d25c3274643ca687f901af043f7030e2752410dd843e56e",
+      "writeAttempted": false
+    },
+    {
+      "id": "xlsx-formula",
+      "format": "xlsx",
+      "features": [
+        "公式",
+        "图表",
+        "中文字体"
+      ],
+      "sourcePath": "tests/fixtures/office/generated/xlsx-formula.xlsx",
+      "status": "FAIL",
+      "error": {
+        "phase": "open",
+        "code": "ZETA_RUNTIME_UNAVAILABLE",
+        "message": "文档无法由 ZetaOffice 打开",
+        "fallback": {
+          "mode": "read-only-preview",
+          "available": false,
+          "reason": "未配置可用的只读预览运行时"
+        }
+      },
+      "sourceSha256": "9a99627ad5ffb9c88725f8ae255f5f4ce7a5eecd699df3a156f6b0718ce34423",
+      "writeAttempted": false
+    }
+  ]
+}

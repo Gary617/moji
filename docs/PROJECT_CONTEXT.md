@@ -51,6 +51,7 @@
 - Tauri Rust `2.11.5`，Tauri Build `2.6.3`，Tauri CLI `2.11.4`，Tauri JS API `2.11.1`。
 - React/React DOM `19.2.8`，TypeScript `7.0.2`，Vite `8.2.1`。
 - Vitest `4.1.11`，Testing Library React `16.3.2`，jsdom `30.0.1`。
+- `zetajs` `1.2.0`（MIT，2025-06-11 release；ZetaOffice/LibreOffice UNO browser wrapper）。ZetaOffice 官方站点（2026-08-18）标记为开放 beta，并列出 Windows 64-bit、32-bit 和 ARM64 桌面下载；本仓库不分发其二进制。
 - serde `1.0.229`，serde_json `1.0.151`，tracing `0.1.44`，tracing-subscriber `0.3.23`。
 
 所有 Node 直接依赖使用精确版本，完整解析结果以 `pnpm-lock.yaml` 为准。所有 Rust 直接依赖使用精确版本，完整解析结果以 `src-tauri/Cargo.lock` 为准。
@@ -65,6 +66,8 @@ pnpm test
 pnpm test:rust
 pnpm build
 pnpm build:desktop
+pnpm generate:office-fixtures
+pnpm test:editor-poc
 pnpm tauri dev
 ```
 
@@ -73,6 +76,8 @@ pnpm tauri dev
 - `pnpm test:rust`：运行 Rust 单元测试。
 - `pnpm build`：执行 TypeScript 类型检查和前端生产构建。
 - `pnpm build:desktop`：执行前端生产构建并生成不打安装包的 Tauri release 可执行文件。
+- `pnpm generate:office-fixtures`：生成 24 个确定性 DOCX/PPTX/XLSX OOXML POC 夹具，不代表编辑器通过。
+- `pnpm test:editor-poc`：在临时目录执行 EditorAdapter round-trip；结果写入 `docs/editor-poc/results.{json,md}`。没有真实 ZetaOffice runtime 时必须返回 `BLOCKED`，不得用 mock 代替。
 - `pnpm tauri dev`：启动开发服务器和真实桌面窗口，用于手工 IPC 验收。
 
 ## IPC 约定
@@ -113,6 +118,21 @@ IPC 协议版本从 `1` 开始。Rust 自定义命令必须返回统一信封，
 health_check() -> IpcResponse<HealthCheckData>
 HealthCheckData = { backendStatus: "ok", appVersion: string, protocolVersion: 1 }
 ```
+
+## EditorAdapter 契约（工期 1）
+
+编辑器层只依赖 `src/editor/types.ts` 的 `EditorAdapter`，不直接调用 ZetaOffice/zetajs 或 UNO。最小接口为：
+
+```text
+healthCheck() -> EditorResult<EditorHealth>
+open(sourcePath, { readOnly? }) -> EditorResult<DocumentHandle>
+readOnlyPreview(handle) -> EditorResult<Preview>
+edit(handle, operation) -> EditorResult<EditReceipt>
+saveAs(handle, targetPath, { format? }) -> EditorResult<SaveReceipt>
+close(handle) -> EditorResult<null>
+```
+
+`EditorResult` 使用 `status: success|error`、`outcome: PASS|DEGRADED|FAIL`；失败包含稳定 `EditorError.code`、`retryable`、脱敏 `details` 和 `read-only-preview` 回退。`ZetaOfficeAdapter` 的 runtime bridge 是唯一允许接触 `Module.zetajs`、UNO 对象、打开/保存内部 API 的位置；`MockEditorAdapter` 仅用于契约测试，不能作为 POC 证据。`saveAs` 在 Windows 大小写不敏感路径归一化后拒绝覆盖源文件。
 
 ## 日志约定
 
