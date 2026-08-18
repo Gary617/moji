@@ -1,27 +1,25 @@
 # 项目状态
 
-更新日期：2026-08-18
+更新日期：2026-08-19
 
 ## 当前阶段
 
-工期 1：ZetaOffice/zetajs Office 编辑器 POC（已实现，结论 BLOCKED）
+工期 1：ZetaOffice/zetajs Office 编辑器 POC（已实现，浏览器真实 POC 结论 PASS）
 
 ## 已完成
 
-- 已在当前项目目录初始化独立 Git，并切换到 `codex/phase-00-foundation`。
-- 已建立 Tauri 2 + React + TypeScript + Rust 工程、Node/Rust 锁文件和目录边界。
-- 已实现统一 IPC 信封、`health_check`、最小 `tracing` 日志和健康状态界面。
-- 前端单元测试 4/4 通过；Rust 单元测试 3/3 通过。
-- 已按 `PROJECT_CONTEXT.md` 完成冻结安装、全部测试、前端生产构建和 Tauri release 构建。
-- 已启动真实 Windows 桌面窗口；前端显示 `运行正常`、应用版本 `0.1.0`、IPC 协议 `v1`，Rust 日志记录 `health_check` success。
-- release 产物：`src-tauri/target/release/moji-desktop.exe`（8,762,880 bytes，构建目录不入 Git）。
-- 已切换到 `codex/phase-01-editor-poc`，建立 `EditorAdapter`、ZetaOffice runtime bridge、mock 和 24 个 OOXML 夹具。
-- 已实现 `pnpm test:editor-poc` 的打开 -> 修改 -> 另存 -> 关闭 -> 重开 -> 摘要/ZIP/哈希校验流程；失败不覆盖源文件。
-- 真实 POC 结果：24 个样本中 PASS 0、DEGRADED 0、FAIL 24；每条失败为 `ZETA_RUNTIME_UNAVAILABLE`，保留只读预览回退，详见 `docs/editor-poc/results.md`。
+- 已完成工期 0 的 Tauri 2 + React + TypeScript + Rust 基线、IPC、日志、测试和桌面构建。
+- 已建立 `EditorAdapter`、ZetaOffice runtime bridge、mock 和 24 个 OOXML 夹具。
+- 已在官方 CDN `https://cdn.zetaoffice.net/zetaoffice_latest/` 初始化真实 ZetaOffice WASM runtime，并在浏览器 worker 中执行 `open -> edit -> saveAs -> close -> reopen`。
+- 24 个矩阵样本 PASS，0 DEGRADED，0 FAIL；另有真实产品方案 DOCX smoke sample PASS，源文件均未覆盖。
+- 已为 DOCX/PPTX/XLSX 保存显式指定 OOXML filter，并修复图片 DOCX 夹具的合法 DrawingML 结构。
 
-## 阻塞
+## 当前边界与风险
 
-ZetaOffice/zetajs runtime bridge 未配置，机器也未安装 ZetaOffice/LibreOffice；因此不能证明 DOCX/PPTX/XLSX 的真实打开、修改、保存和重开，当前结论为 BLOCKED。下一阶段在依赖 Office 写回前必须做一个明确选择：更换编辑器、首版只读、或延后写回。当前系统全局 PATH 的 Node 24.13.0 仍低于要求；验收使用工作区 Node 24.19.0 / pnpm 11.19.0，Rust 1.97.1 通过显式 PATH 调用。
+- `pnpm test:editor-poc` 是 Node 侧注入 runtime bridge runner；当前机器没有该 bridge 时仍会报告 `ZETA_RUNTIME_UNAVAILABLE`/`BLOCKED`，不得用 mock 或浏览器结果静默改写它。
+- 浏览器 POC 使用官方 `zetaoffice_latest` CDN，版本随 CDN 更新且依赖网络；正式集成前需要锁定构建或自托管并记录 SHA-256。
+- 真实证据来自浏览器 worker，尚未接入 Tauri WebView2 自动化测试；浏览器 PASS 不等同于离线桌面安装包或任意真实用户文件兼容。
+- 夹具是结构化代表性输入，批注、图表和复杂排版还需后续视觉核对。
 
 ## 明确未做
 
@@ -29,4 +27,4 @@ ZetaOffice/zetajs runtime bridge 未配置，机器也未安装 ZetaOffice/Libre
 
 ## 下一条命令
 
-工期 2 不具备默认开始条件；开始前必须阅读 `docs/handoffs/phase-01.md`，解决或接受 BLOCKED 决策，并提供真实 runtime bridge 后重跑 `pnpm test:editor-poc`。
+工期 2 具备开始条件，但只能依赖 `EditorAdapter` 契约和本 POC 结论；开始前先阅读 `docs/handoffs/phase-01.md`，不得让业务模块直接依赖 `Module.zetajs`、UNO 对象、浏览器虚拟 FS 或默认假设 Office 写回可用。

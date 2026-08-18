@@ -8,6 +8,16 @@ export default defineConfig({
     host: "127.0.0.1",
     port: 1420,
     strictPort: true,
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp",
+    },
+  },
+  preview: {
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp",
+    },
   },
   test: {
     environment: "jsdom",

@@ -1,6 +1,6 @@
 # 测试矩阵
 
-更新日期：2026-08-18
+更新日期：2026-08-19
 
 | 层级 | 样本/目标 | 命令 | 结果 |
 | --- | --- | --- | --- |
@@ -20,13 +20,15 @@
 | EditorAdapter 错误 | ZetaOffice runtime 缺失映射 `ZETA_RUNTIME_UNAVAILABLE` 并给出只读回退 | `pnpm test` | PASS |
 | EditorAdapter bridge | 注入 runtime 完成 health/open/edit/saveAs/preview/close 生命周期 | `pnpm test` | PASS |
 | OOXML 夹具 | DOCX/PPTX/XLSX 各 8 个，共 24 个；表格、图片、批注、图表、中文字体、复杂排版、公式 | `pnpm generate:office-fixtures` | PASS，24 个可列举 ZIP 夹具 |
-| 真实 Office POC | 打开 -> 修改 -> 另存 -> 关闭 -> 重开 -> 预览/ZIP/源哈希校验 | `pnpm test:editor-poc` | BLOCKED（预期非零；runner 子进程码 2）：24 total，PASS 0，DEGRADED 0，FAIL 24；原因 `ZETA_RUNTIME_UNAVAILABLE` |
-| 源文件保护 | runtime 缺失时不执行写入；保存失败保留源哈希 | `pnpm test:editor-poc` | PASS（24 条均 `writeAttempted: false`，源文件未覆盖） |
+| Node 侧 Office POC | 打开 -> 修改 -> 另存 -> 关闭 -> 重开 -> 预览/ZIP/源哈希校验 | `pnpm test:editor-poc` | 环境无 runtime bridge 时 BLOCKED（`ZETA_RUNTIME_UNAVAILABLE`）；不得用 mock 替代 |
+| 浏览器真实 Office POC | 24 个 DOCX/PPTX/XLSX：打开 -> 修改 -> OOXML filter 另存 -> 关闭 -> 重开 -> marker/主部件/源哈希校验 | `pnpm dev` + `http://127.0.0.1:1420/editor-poc/index.html` 的 `Run 24-sample matrix` | PASS：24 total，24 PASS，0 DEGRADED，0 FAIL |
+| 真实产品方案 DOCX smoke | 真实文档打开 -> 追加正文 -> 另存 -> 关闭 -> 重开 | 同上页面的 `Run DOCX round-trip` | PASS；源文件 SHA-256 `c0da3a...ac7c4c` 保持不变 |
+| 源文件保护 | 每个浏览器样本比较源 SHA-256；目标使用独立虚拟路径 | 浏览器真实 Office POC | PASS（24 条 `sourcePreserved: true`，失败路径仍禁止覆盖） |
 
 ## 当前自动化统计
 
 - 前端：3 个测试文件，7 个测试，通过 7，失败 0。
 - Rust：3 个单元测试，通过 3，失败 0。
-- Office POC：24 个样本，0 PASS / 0 DEGRADED / 24 FAIL；这是环境阻塞证据，不是 mock 通过。
+- Office POC：浏览器真实矩阵 24 个样本，24 PASS / 0 DEGRADED / 0 FAIL；Node runner 在无 runtime bridge 环境仍为 BLOCKED，这是两条不同证据链。
 - 已知非失败输出：MSVC 链接器以中文输出“正在创建库”，Rust 1.97.1 将该 stdout 显示为 `linker_messages` warning；产物和测试均成功。
 - 生产构建首次因全局 Node 24.13.0 / pnpm 11.22.0 不满足项目引擎约束而被正确拒绝；切换到 `PROJECT_CONTEXT.md` 要求的 Node 24.19.0 / pnpm 11.19.0 后原命令通过。

@@ -51,7 +51,7 @@
 - Tauri Rust `2.11.5`，Tauri Build `2.6.3`，Tauri CLI `2.11.4`，Tauri JS API `2.11.1`。
 - React/React DOM `19.2.8`，TypeScript `7.0.2`，Vite `8.2.1`。
 - Vitest `4.1.11`，Testing Library React `16.3.2`，jsdom `30.0.1`。
-- `zetajs` `1.2.0`（MIT，2025-06-11 release；ZetaOffice/LibreOffice UNO browser wrapper）。ZetaOffice 官方站点（2026-08-18）标记为开放 beta，并列出 Windows 64-bit、32-bit 和 ARM64 桌面下载；本仓库不分发其二进制。
+- `zetajs` `1.2.0`（MIT，2025-06-11 release；ZetaOffice/LibreOffice UNO browser wrapper）。ZetaOffice 官方站点（2026-08-18）标记为开放 beta，并列出 Windows 64-bit、32-bit 和 ARM64 桌面下载；本仓库不分发其二进制。浏览器 POC 使用官方 CDN `https://cdn.zetaoffice.net/zetaoffice_latest/`，不是把 WASM/data 提交到仓库。
 - serde `1.0.229`，serde_json `1.0.151`，tracing `0.1.44`，tracing-subscriber `0.3.23`。
 
 所有 Node 直接依赖使用精确版本，完整解析结果以 `pnpm-lock.yaml` 为准。所有 Rust 直接依赖使用精确版本，完整解析结果以 `src-tauri/Cargo.lock` 为准。
@@ -77,7 +77,8 @@ pnpm tauri dev
 - `pnpm build`：执行 TypeScript 类型检查和前端生产构建。
 - `pnpm build:desktop`：执行前端生产构建并生成不打安装包的 Tauri release 可执行文件。
 - `pnpm generate:office-fixtures`：生成 24 个确定性 DOCX/PPTX/XLSX OOXML POC 夹具，不代表编辑器通过。
-- `pnpm test:editor-poc`：在临时目录执行 EditorAdapter round-trip；结果写入 `docs/editor-poc/results.{json,md}`。没有真实 ZetaOffice runtime 时必须返回 `BLOCKED`，不得用 mock 代替。
+- `pnpm test:editor-poc`：在临时目录执行注入 `ZetaOfficeRuntime` 的 EditorAdapter round-trip；没有 Node runtime bridge 时必须返回 `BLOCKED`，不得用 mock 代替。
+- 浏览器真实 POC：启动 `pnpm dev`，打开 `http://127.0.0.1:1420/editor-poc/index.html`，等待官方 CDN runtime ready，点击 `Run 24-sample matrix`；页面执行真实 `Module.zetajs` worker 回环，结果写入 `docs/editor-poc/results.{json,md}`。
 - `pnpm tauri dev`：启动开发服务器和真实桌面窗口，用于手工 IPC 验收。
 
 ## IPC 约定
@@ -133,6 +134,8 @@ close(handle) -> EditorResult<null>
 ```
 
 `EditorResult` 使用 `status: success|error`、`outcome: PASS|DEGRADED|FAIL`；失败包含稳定 `EditorError.code`、`retryable`、脱敏 `details` 和 `read-only-preview` 回退。`ZetaOfficeAdapter` 的 runtime bridge 是唯一允许接触 `Module.zetajs`、UNO 对象、打开/保存内部 API 的位置；`MockEditorAdapter` 仅用于契约测试，不能作为 POC 证据。`saveAs` 在 Windows 大小写不敏感路径归一化后拒绝覆盖源文件。
+
+浏览器 POC 的实现位于 `public/editor-poc/`：`zetaHelper.js`/`zeta.js` 仅作为 `zetajs@1.2.0` 的运行时封装，`office_thread.js` 在内部处理 Writer/Impress/Calc 的 UNO 对象。页面只向主线程返回结构化回环结果；业务代码不得依赖这些内部对象。真实结果和每个样本的源/输出哈希在 `docs/editor-poc/results.json`。
 
 ## 日志约定
 

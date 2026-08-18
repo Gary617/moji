@@ -63,9 +63,24 @@
 - 决策：运行时不可用、格式/保存/重开失败分别映射稳定错误码；`saveAs` 归一化后禁止覆盖源文件；runner 对每个样本记录 PASS/DEGRADED/FAIL、阶段、错误、回退和源哈希。
 - 理由：不能把 mock 或“调用成功”当作文件完整性证据；保存失败时保留源文件是最高优先级的不变量。
 
-## D-010 ZetaOffice POC 结论为 BLOCKED
+## D-010 Node runner 初始结论为 BLOCKED
 
 - 日期：2026-08-18
 - 状态：已接受
-- 决策：官方资料确认 `zetajs` `1.2.0` 为 MIT、ZetaOffice 开放 beta 且提供 Windows 安装包，但当前机器没有 runtime bridge/安装包；24 个真实 runner 样本全部 FAIL（`ZETA_RUNTIME_UNAVAILABLE`），不能宣称支持写回。
+- 决策：官方资料确认 `zetajs` `1.2.0` 为 MIT、ZetaOffice 开放 beta 且提供 Windows 安装包；在没有 Node runtime bridge 的环境中，`pnpm test:editor-poc` 必须保留 `ZETA_RUNTIME_UNAVAILABLE`/`BLOCKED`，不能宣称 Node runner 支持写回。
 - 选项：下一阶段前更换编辑器；首版只读；或延后 Office 写回。索引模块不得默认依赖 Office 写回。
+
+## D-011 浏览器 POC 使用官方 CDN runtime
+
+- 日期：2026-08-19
+- 状态：已接受
+- 决策：工期 1 使用官方 `https://cdn.zetaoffice.net/zetaoffice_latest/` 加载 `soffice.js`、WASM 和 data，在 `public/editor-poc/` 的 worker 中封装 UNO；不把二进制提交到仓库。
+- 理由：Windows 浏览器/WebView2 边界可以在不安装桌面 MSI 的情况下验证真实 `Module.zetajs` 生命周期；CDN 响应已确认 CORS/`Cross-Origin-Resource-Policy` 可用。
+- 约束：`zetaoffice_latest` 不是锁定版本；正式发布前必须锁定构建或自托管并记录校验值。
+
+## D-012 浏览器真实矩阵结论为 PASS
+
+- 日期：2026-08-19
+- 状态：已接受
+- 决策：24 个代表性 DOCX/PPTX/XLSX 夹具在真实浏览器 ZetaOffice runtime 中全部通过打开、修改、OOXML filter 另存、关闭、重开、编辑标记、主部件和源 SHA-256 校验；另有真实产品方案 DOCX smoke sample 通过。POC 结论为 `PASS`。
+- 边界：该 PASS 证明浏览器 worker 的格式回环，不证明所有真实用户文件的视觉保真、不证明离线 CDN 可用，也不替代 Node/Tauri WebView2 自动化 runner。

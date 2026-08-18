@@ -1,0 +1,295 @@
+{
+  "schemaVersion": 1,
+  "sourcePolicy": "generated-fixtures-only",
+  "samples": [
+    {
+      "id": "docx-basic",
+      "format": "docx",
+      "features": [
+        "正文"
+      ],
+      "edit": {
+        "kind": "append-text",
+        "text": " [round-trip]"
+      }
+    },
+    {
+      "id": "docx-table",
+      "format": "docx",
+      "features": [
+        "表格"
+      ],
+      "edit": {
+        "kind": "replace-text",
+        "find": "CELL_A1",
+        "replace": "CELL_A1_EDITED"
+      }
+    },
+    {
+      "id": "docx-image",
+      "format": "docx",
+      "features": [
+        "图片"
+      ],
+      "edit": {
+        "kind": "append-text",
+        "text": " [image-check]"
+      }
+    },
+    {
+      "id": "docx-comments",
+      "format": "docx",
+      "features": [
+        "批注"
+      ],
+      "edit": {
+        "kind": "append-text",
+        "text": " [comment-check]"
+      }
+    },
+    {
+      "id": "docx-cjk-font",
+      "format": "docx",
+      "features": [
+        "中文字体"
+      ],
+      "edit": {
+        "kind": "append-text",
+        "text": " [中文修改]"
+      }
+    },
+    {
+      "id": "docx-complex-layout",
+      "format": "docx",
+      "features": [
+        "复杂排版",
+        "页眉页脚"
+      ],
+      "edit": {
+        "kind": "append-text",
+        "text": " [layout-check]"
+      }
+    },
+    {
+      "id": "docx-header-footer",
+      "format": "docx",
+      "features": [
+        "页眉页脚"
+      ],
+      "edit": {
+        "kind": "append-text",
+        "text": " [header-footer-check]"
+      }
+    },
+    {
+      "id": "docx-long-text",
+      "format": "docx",
+      "features": [
+        "长文本",
+        "中文字体"
+      ],
+      "edit": {
+        "kind": "append-text",
+        "text": " [long-text-check]"
+      }
+    },
+    {
+      "id": "pptx-basic",
+      "format": "pptx",
+      "features": [
+        "单页演示"
+      ],
+      "edit": {
+        "kind": "append-text",
+        "text": " [round-trip]"
+      }
+    },
+    {
+      "id": "pptx-table",
+      "format": "pptx",
+      "features": [
+        "表格"
+      ],
+      "edit": {
+        "kind": "append-text",
+        "text": " [table-check]"
+      }
+    },
+    {
+      "id": "pptx-image",
+      "format": "pptx",
+      "features": [
+        "图片"
+      ],
+      "edit": {
+        "kind": "append-text",
+        "text": " [image-check]"
+      }
+    },
+    {
+      "id": "pptx-chart",
+      "format": "pptx",
+      "features": [
+        "图表"
+      ],
+      "edit": {
+        "kind": "append-text",
+        "text": " [chart-check]"
+      }
+    },
+    {
+      "id": "pptx-comments",
+      "format": "pptx",
+      "features": [
+        "批注"
+      ],
+      "edit": {
+        "kind": "append-text",
+        "text": " [comment-check]"
+      }
+    },
+    {
+      "id": "pptx-cjk-font",
+      "format": "pptx",
+      "features": [
+        "中文字体"
+      ],
+      "edit": {
+        "kind": "append-text",
+        "text": " [中文修改]"
+      }
+    },
+    {
+      "id": "pptx-complex-layout",
+      "format": "pptx",
+      "features": [
+        "复杂排版",
+        "多页"
+      ],
+      "edit": {
+        "kind": "append-text",
+        "text": " [layout-check]"
+      }
+    },
+    {
+      "id": "pptx-multi-slide",
+      "format": "pptx",
+      "features": [
+        "多页",
+        "图片",
+        "图表"
+      ],
+      "edit": {
+        "kind": "append-text",
+        "text": " [multi-slide-check]"
+      }
+    },
+    {
+      "id": "xlsx-basic",
+      "format": "xlsx",
+      "features": [
+        "单表"
+      ],
+      "edit": {
+        "kind": "set-cell-value",
+        "sheet": "Sheet1",
+        "cell": "B2",
+        "value": "42"
+      }
+    },
+    {
+      "id": "xlsx-table",
+      "format": "xlsx",
+      "features": [
+        "表格"
+      ],
+      "edit": {
+        "kind": "set-cell-value",
+        "sheet": "Sheet1",
+        "cell": "B2",
+        "value": "TABLE_EDITED"
+      }
+    },
+    {
+      "id": "xlsx-image",
+      "format": "xlsx",
+      "features": [
+        "图片"
+      ],
+      "edit": {
+        "kind": "set-cell-value",
+        "sheet": "Sheet1",
+        "cell": "B2",
+        "value": "IMAGE_EDITED"
+      }
+    },
+    {
+      "id": "xlsx-chart",
+      "format": "xlsx",
+      "features": [
+        "图表"
+      ],
+      "edit": {
+        "kind": "set-cell-value",
+        "sheet": "Sheet1",
+        "cell": "B2",
+        "value": "CHART_EDITED"
+      }
+    },
+    {
+      "id": "xlsx-comments",
+      "format": "xlsx",
+      "features": [
+        "批注"
+      ],
+      "edit": {
+        "kind": "set-cell-value",
+        "sheet": "Sheet1",
+        "cell": "B2",
+        "value": "COMMENT_EDITED"
+      }
+    },
+    {
+      "id": "xlsx-cjk-font",
+      "format": "xlsx",
+      "features": [
+        "中文字体"
+      ],
+      "edit": {
+        "kind": "set-cell-value",
+        "sheet": "Sheet1",
+        "cell": "B2",
+        "value": "中文修改"
+      }
+    },
+    {
+      "id": "xlsx-complex-layout",
+      "format": "xlsx",
+      "features": [
+        "复杂排版",
+        "合并单元格"
+      ],
+      "edit": {
+        "kind": "set-cell-value",
+        "sheet": "Sheet1",
+        "cell": "B2",
+        "value": "LAYOUT_EDITED"
+      }
+    },
+    {
+      "id": "xlsx-formula",
+      "format": "xlsx",
+      "features": [
+        "公式",
+        "图表",
+        "中文字体"
+      ],
+      "edit": {
+        "kind": "set-cell-value",
+        "sheet": "Sheet1",
+        "cell": "B2",
+        "value": "FORMULA_EDITED"
+      }
+    }
+  ]
+}

@@ -11,7 +11,7 @@ This POC keeps Office editing behind `EditorAdapter`. The production boundary is
 | [zetajs starting points](https://raw.githubusercontent.com/allotropia/zetajs/main/docs/start.md) | Current main documentation | Requires a `Module.zetajs` Promise; plain builds require an HTML canvas and worker integration |
 | [ZetaOffice official site](https://zetaoffice.net/) | Open beta, checked 2026-08-18 | Based on LibreOffice; site advertises native Windows 64-bit, 32-bit and ARM64 desktop downloads plus browser/CDN/self-hosted deployment |
 
-The checked-in dependency is `zetajs` `1.2.0`. The repository does not bundle ZetaOffice binaries. On a machine without a configured runtime bridge, the POC records `ZETA_RUNTIME_UNAVAILABLE` and `BLOCKED`; it never substitutes the mock or claims a round trip.
+The checked-in dependency is `zetajs` `1.2.0`. The repository does not bundle ZetaOffice binaries. On a machine without a configured **Node** runtime bridge, `pnpm test:editor-poc` records `ZETA_RUNTIME_UNAVAILABLE` and `BLOCKED`; it never substitutes the mock or claims a round trip. The real browser evidence in `results.json` was produced by the official CDN runtime and is a separate, explicitly labelled path. `pnpm generate:office-fixtures` writes the same deterministic bytes to both the Node fixture directory and the browser fixture directory.
 
 ## Reproduce
 
@@ -24,6 +24,19 @@ pnpm test:editor-poc
 The runner copies each fixture to a temporary directory before saving. It validates the output as an OOXML ZIP, closes it, reopens it in read-only mode, compares the preview marker, and verifies the source SHA-256 is unchanged. Results are written to `docs/editor-poc/results.json` and `docs/editor-poc/results.md`.
 
 The runner exits `0` only for `PASS`; `DEGRADED` or `BLOCKED` sets child exit code `2` after writing both reports (pnpm may normalize the lifecycle exit to `1`) so CI cannot treat a blocked editor as a passing gate.
+
+### Browser runtime POC
+
+The checked-in browser harness exercises real `Module.zetajs` rather than the mock. It uses the official CDN, writes each input into the worker virtual file system, and always saves to a separate target:
+
+```powershell
+pnpm dev
+# open http://127.0.0.1:1420/editor-poc/index.html?run=matrix
+# wait for "ZetaOffice runtime ready"
+# with no query string, click "Run DOCX round-trip" and "Run 24-sample matrix" manually
+```
+
+The matrix runs 24 samples (8 per format) and checks the edited marker after reopening, OOXML ZIP magic and the required package part, output SHA-256, and unchanged source SHA-256. `public/editor-poc/office_thread.js` is the only place that calls Writer/Impress/Calc UNO methods. CDN `zetaoffice_latest` is intentionally not treated as a release lock; a production integration must pin or self-host the runtime.
 
 To run against a real browser/worker bridge, provide a module exporting a `ZetaOfficeRuntime`-compatible object:
 

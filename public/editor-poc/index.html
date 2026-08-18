@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Office Editor POC</title>
+    <style>
+      :root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+      body { margin: 0; background: #111827; color: #e5e7eb; }
+      header { padding: 16px 20px; border-bottom: 1px solid #374151; }
+      h1 { margin: 0 0 6px; font-size: 18px; }
+      p { margin: 0; color: #9ca3af; font-size: 12px; }
+      main { padding: 16px 20px; }
+      #status { white-space: pre-wrap; line-height: 1.5; min-height: 220px; }
+      #qtcanvas { display: block; width: 100%; height: 420px; border: 1px solid #374151; background: #fff; visibility: hidden; }
+      .actions { display: flex; gap: 8px; margin: 12px 0; }
+      button { padding: 8px 12px; border: 1px solid #4b5563; background: #1f2937; color: #f9fafb; cursor: pointer; }
+      button:disabled { opacity: .5; cursor: default; }
+      .pass { color: #86efac; }
+      .fail { color: #fca5a5; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>ZetaOffice/zetajs runtime probe</h1>
+      <p>Real DOCX/PPTX/XLSX open -> edit -> saveAs -> close -> reopen. Sources are never written.</p>
+    </header>
+    <main>
+      <div class="actions">
+        <button id="run" type="button" disabled>Run DOCX round-trip</button>
+        <button id="run-matrix" type="button" disabled>Run 24-sample matrix</button>
+        <button id="clear" type="button">Clear</button>
+      </div>
+      <pre id="status">Loading ZetaOffice runtime...</pre>
+      <canvas id="qtcanvas" aria-label="ZetaOffice canvas"></canvas>
+    </main>
+    <script type="module">
+      import { ZetaHelperMain } from './vendor/zetajs/zetaHelper.js';
+
+      const statusNode = document.getElementById('status');
+      const runButton = document.getElementById('run');
+      const matrixButton = document.getElementById('run-matrix');
+      const clearButton = document.getElementById('clear');
+      const canvas = document.getElementById('qtcanvas');
+      const wasmBase = 'https://cdn.zetaoffice.net/zetaoffice_latest/';
+      const sourceRoot = '/editor-poc/samples/';
+      const sourceUrl = '/editor-poc/samples/plan.docx';
+      let helper;
+      let ready = false;
+
+      function log(message, data) {
+        const suffix = data === undefined ? '' : `\n${JSON.stringify(data, null, 2)}`;
+        statusNode.textContent += `\n${message}${suffix}`;
+      }
+
+      function setResult(ok, message, data) {
+        statusNode.className = ok ? 'pass' : 'fail';
+        statusNode.textContent = `${message}\n${JSON.stringify(data, null, 2)}`;
+      }
+
+      clearButton.onclick = () => { statusNode.className = ''; statusNode.textContent = ''; };
+
+      async function stageBytes(source, target) {
+        try { helper.FS.mkdir('/tmp/office'); } catch {}
+        helper.FS.writeFile(source, target);
+      }
+
+      async function fetchBytes(sourceUrl) {
+        const response = await fetch(sourceUrl, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`source fetch failed: ${response.status}`);
+        return new Uint8Array(await response.arrayBuffer());
+      }
+
+      function waitForResult(expected) {
+        return new Promise((resolve, reject) => {
+          const previous = helper.thrPort.onmessage;
+          const timer = setTimeout(() => {
+            helper.thrPort.onmessage = previous;
+            reject(new Error(`timeout waiting for ${expected}`));
+          }, 180000);
+          const restore = () => { helper.thrPort.onmessage = previous; };
+          helper.thrPort.onmessage = (event) => {
+            if (event.data.cmd === expected) {
+              clearTimeout(timer);
+              restore();
+              resolve(event.data);
+              return;
+            }
+            if (event.data.cmd === 'error') {
+              clearTimeout(timer);
+              restore();
+              reject(new Error(event.data.message || 'office worker failed'));
+            }
+          };
+        });
+      }
+
+      function sha256(bytes) {
+        return crypto.subtle.digest('SHA-256', bytes).then((digest) => Array.from(new Uint8Array(digest))
+          .map((byte) => byte.toString(16).padStart(2, '0')).join(''));
+      }
+
+      function hasZipEntry(bytes, entry) {
+        return new TextDecoder().decode(bytes).includes(entry);
+      }
+
+      async function runSample(sample) {
+        const extension = sample.format;
+        const sourcePath = `/tmp/office/${sample.id}.${extension}`;
+        const targetPath = `/tmp/office/${sample.id}-edited.${extension}`;
+        const bytes = await fetchBytes(`${sourceRoot}${sample.id}.${extension}`);
+        await stageBytes(sourcePath, bytes);
+        const sourceSha256 = await sha256(bytes);
+        helper.thrPort.postMessage({
+          cmd: 'roundtrip', id: sample.id, format: sample.format,
+          source: sourcePath, target: targetPath, edit: sample.edit,
+        });
+        const result = await waitForResult('roundtrip');
+        const output = helper.FS.readFile(targetPath);
+        const outputSha256 = await sha256(output);
+        const sourceAfterSha256 = await sha256(helper.FS.readFile(sourcePath));
+        const requiredEntry = sample.format === 'docx' ? 'word/document.xml' : sample.format === 'pptx' ? 'ppt/presentation.xml' : 'xl/workbook.xml';
+        const validZip = output[0] === 0x50 && output[1] === 0x4b && hasZipEntry(output, requiredEntry);
+        const sourcePreserved = sourceSha256 === sourceAfterSha256;
+        const ok = validZip && sourcePreserved && result.reopened && result.markerPresent;
+        return {
+          ...sample,
+          status: ok ? 'PASS' : 'FAIL',
+          sourceBytes: bytes.length,
+          outputBytes: output.length,
+          sourceSha256,
+          sourceSha256After: sourceAfterSha256,
+          outputSha256,
+          sourcePreserved,
+          validZip,
+          requiredEntry,
+          ...result,
+          error: ok ? null : { code: 'OUTPUT_INVALID', reason: { validZip, sourcePreserved, reopened: result.reopened, markerPresent: result.markerPresent } },
+        };
+      }
+
+      runButton.onclick = async () => {
+        runButton.disabled = true;
+          statusNode.className = '';
+          statusNode.textContent = 'Staging source DOCX...';
+          try {
+          const sourceBytes = await fetchBytes(sourceUrl);
+          await stageBytes('/tmp/office/plan.docx', sourceBytes);
+          helper.thrPort.postMessage({ cmd: 'roundtrip', id: 'plan', format: 'docx', source: '/tmp/office/plan.docx', target: '/tmp/office/plan-edited.docx', edit: { kind: 'append-text', text: 'ZETA_POC_EDITED', marker: 'ZETA_POC_EDITED' } });
+          const result = await waitForResult('roundtrip');
+          const output = helper.FS.readFile('/tmp/office/plan-edited.docx');
+          const outputHash = await sha256(output);
+          const sourceHash = await sha256(sourceBytes);
+          const sourceHashAfter = await sha256(helper.FS.readFile('/tmp/office/plan.docx'));
+          const validZip = output[0] === 0x50 && output[1] === 0x4b;
+          const sourcePreserved = sourceHash === sourceHashAfter;
+          const ok = validZip && sourcePreserved && result.reopened && result.markerPresent;
+          setResult(ok, ok ? 'PASS: real ZetaOffice DOCX round-trip' : 'FAIL: real ZetaOffice round-trip validation failed', {
+            sourceBytes,
+            outputBytes: output.length,
+            sourceSha256: sourceHash,
+            outputSha256: outputHash,
+            sourceSha256After: sourceHashAfter,
+            sourcePreserved,
+            ...result,
+          });
+        } catch (error) {
+          setResult(false, 'FAIL: real ZetaOffice DOCX round-trip failed', { error: error instanceof Error ? error.message : String(error) });
+        } finally {
+          runButton.disabled = false;
+        }
+      };
+
+      matrixButton.onclick = async () => {
+        runButton.disabled = true;
+        matrixButton.disabled = true;
+        statusNode.className = '';
+        statusNode.textContent = 'Running 24-sample matrix...';
+        try {
+          const response = await fetch('/editor-poc/samples/manifest.json', { cache: 'no-store' });
+          if (!response.ok) throw new Error(`manifest fetch failed: ${response.status}`);
+          const manifest = await response.json();
+          const results = [];
+          for (const sample of manifest.samples) {
+            statusNode.textContent = `Running ${results.length + 1}/${manifest.samples.length}: ${sample.id}`;
+            try {
+              results.push(await runSample(sample));
+            } catch (error) {
+              results.push({ ...sample, status: 'FAIL', error: { code: 'EDITOR_ROUNDTRIP_FAILED', message: error instanceof Error ? error.message : String(error) } });
+            }
+          }
+          const summary = {
+            total: results.length,
+            pass: results.filter((result) => result.status === 'PASS').length,
+            degraded: results.filter((result) => result.status === 'DEGRADED').length,
+            fail: results.filter((result) => result.status === 'FAIL').length,
+          };
+          const conclusion = summary.fail === 0 ? (summary.degraded === 0 ? 'PASS' : 'DEGRADED') : summary.fail === summary.total ? 'BLOCKED' : 'DEGRADED';
+          setResult(summary.fail === 0, `REAL ZetaOffice matrix: ${conclusion}`, { generatedAt: new Date().toISOString(), wasmBase, conclusion, summary, samples: results });
+        } catch (error) {
+          setResult(false, 'FAIL: matrix runner failed', { error: error instanceof Error ? error.message : String(error) });
+        } finally {
+          runButton.disabled = !ready;
+          matrixButton.disabled = !ready;
+        }
+      };
+
+      helper = new ZetaHelperMain('/editor-poc/office_thread.js', {
+        threadJsType: 'module',
+        wasmPkg: `url:${wasmBase}`,
+        blockPageScroll: true,
+      });
+      helper.start(() => {
+        helper.thrPort.onmessage = (event) => {
+          if (event.data.cmd === 'ready') {
+            ready = true;
+            runButton.disabled = false;
+            matrixButton.disabled = false;
+            canvas.style.visibility = 'visible';
+            log('ZetaOffice runtime ready', { wasmBase, moduleReady: true });
+            if (new URLSearchParams(location.search).get('run') === 'matrix') {
+              setTimeout(() => matrixButton.click(), 0);
+            }
+          }
+        };
+      });
+    </script>
+  </body>
+</html>

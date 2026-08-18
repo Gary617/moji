@@ -5,6 +5,7 @@ const root = resolve(import.meta.dirname, "..");
 const manifestPath = resolve(root, "tests/fixtures/office/manifest.json");
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 const fixtureRoot = resolve(root, "tests/fixtures/office/generated");
+const browserFixtureRoot = resolve(root, "public/editor-poc/samples");
 const png1x1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 
 const crcTable = Array.from({ length: 256 }, (_, n) => {
@@ -97,9 +98,9 @@ function officeEntries(sample) {
   const entries = [["[Content_Types].xml", contentTypes(sample.format, features)], ["_rels/.rels", '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="/' + (sample.format === "docx" ? "word/document.xml" : sample.format === "pptx" ? "ppt/presentation.xml" : "xl/workbook.xml") + '"/></Relationships>']];
   if (sample.format === "docx") {
     const table = features.includes("表格") ? "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>CELL_A1</w:t></w:r></w:p></w:tc></w:tr></w:tbl>" : "";
-    const drawing = features.includes("图片") ? "<w:drawing><wp:inline><a:graphic><a:graphicData><pic:pic/></a:graphicData></a:graphic></wp:inline></w:drawing>" : "";
+    const drawing = features.includes("图片") ? '<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="914400" cy="914400"/><wp:docPr id="1" name="Picture 1"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="image1.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdImage"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>' : "";
     const comments = features.includes("批注") ? "<w:commentRangeStart w:id=\"0\"/><w:r><w:t>commented</w:t></w:r><w:commentRangeEnd w:id=\"0\"/>" : "";
-    entries.push(["word/document.xml", `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><w:body><w:p><w:r><w:t>${xmlEscape(marker)} 中文字体复杂排版</w:t></w:r></w:p>${comments}<w:p><w:r><w:t>${xmlEscape(features.join(" "))}</w:t></w:r></w:p>${table}${drawing}<w:sectPr/></w:body></w:document>`]);
+    entries.push(["word/document.xml", `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body><w:p><w:r><w:t>${xmlEscape(marker)} 中文字体复杂排版</w:t></w:r></w:p>${comments}<w:p><w:r><w:t>${xmlEscape(features.join(" "))}</w:t></w:r></w:p>${table}${drawing}<w:sectPr/></w:body></w:document>`]);
     entries.push(["word/_rels/document.xml.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${features.includes("批注") ? '<Relationship Id="rIdComment" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="comments.xml"/>' : ""}${features.includes("图片") ? '<Relationship Id="rIdImage" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>' : ""}</Relationships>`]);
     if (features.includes("批注")) entries.push(["word/comments.xml", '<?xml version="1.0" encoding="UTF-8"?><w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:comment w:id="0" w:author="POC"><w:p><w:r><w:t>批注</w:t></w:r></w:p></w:comment></w:comments>']);
     if (features.includes("图片")) entries.push(["word/media/image1.png", png1x1]);
@@ -122,9 +123,13 @@ function officeEntries(sample) {
 }
 
 await mkdir(fixtureRoot, { recursive: true });
+await mkdir(browserFixtureRoot, { recursive: true });
+await writeFile(resolve(browserFixtureRoot, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 for (const sample of manifest.samples) {
   const target = resolve(root, "tests/fixtures/office", "generated", `${sample.id}.${sample.format}`);
   await mkdir(dirname(target), { recursive: true });
-  await writeFile(target, zip(officeEntries(sample)));
+  const bytes = zip(officeEntries(sample));
+  await writeFile(target, bytes);
+  await writeFile(resolve(browserFixtureRoot, `${sample.id}.${sample.format}`), bytes);
 }
 console.log(`Generated ${manifest.samples.length} deterministic OOXML fixtures in ${fixtureRoot}`);

@@ -1,30 +1,50 @@
 {
-  "schemaVersion": 1,
-  "generatedAt": "2026-08-18T15:59:53.395Z",
-  "conclusion": "BLOCKED",
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-18T17:02:18.544Z",
+  "conclusion": "PASS",
   "runtimeHealth": {
-    "status": "error",
-    "outcome": "FAIL",
-    "error": {
-      "code": "ZETA_RUNTIME_UNAVAILABLE",
-      "message": "ZetaOffice/zetajs 运行时不可用",
-      "retryable": true,
-      "details": {
-        "cause": "ZetaOffice/zetajs runtime is not configured"
-      },
-      "fallback": {
-        "mode": "read-only-preview",
-        "available": false,
-        "reason": "未配置 ZetaOffice 运行时"
-      }
-    }
+    "status": "success",
+    "outcome": "PASS",
+    "data": {
+      "adapter": "zeta-office",
+      "runtimeAvailable": true,
+      "runtimeVersion": "zetaoffice_latest (official CDN)",
+      "supportedFormats": [
+        "docx",
+        "pptx",
+        "xlsx"
+      ],
+      "canEdit": true,
+      "canSaveAs": true
+    },
+    "warnings": [
+      "Browser WebView2/Chromium harness evidence; Node runner remains unavailable without a browser runtime bridge."
+    ]
   },
-  "runDirectory": "<temporary>",
+  "runtimeEvidence": {
+    "source": "https://cdn.zetaoffice.net/zetaoffice_latest/",
+    "harness": "public/editor-poc/index.html?run=matrix",
+    "operations": [
+      "open",
+      "edit",
+      "saveAs",
+      "close",
+      "reopen"
+    ],
+    "outputValidation": [
+      "OOXML ZIP magic",
+      "required package entry",
+      "source SHA-256 unchanged",
+      "edited marker present"
+    ],
+    "generatedAt": "2026-08-18T17:02:18.544Z"
+  },
+  "runDirectory": "<browser virtual FS>",
   "summary": {
     "total": 24,
-    "pass": 0,
+    "pass": 24,
     "degraded": 0,
-    "fail": 24
+    "fail": 0
   },
   "samples": [
     {
@@ -33,20 +53,29 @@
       "features": [
         "正文"
       ],
-      "sourcePath": "tests/fixtures/office/generated/docx-basic.docx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "append-text",
+        "text": " [round-trip]"
       },
-      "sourceSha256": "b5dfadaf3d7776cc6285abc6740e4dcaeb1a0f663f6358d3e79fc0f91e752b3a",
-      "writeAttempted": false
+      "status": "PASS",
+      "sourceBytes": 1923,
+      "outputBytes": 5141,
+      "sourceSha256": "fbd51c1724a2c6896dc19c1cf0a500a6a95a0994ecb73db6196c3b9e2e5684be",
+      "sourceSha256After": "fbd51c1724a2c6896dc19c1cf0a500a6a95a0994ecb73db6196c3b9e2e5684be",
+      "outputSha256": "074d64ab62c5571e1dc64a82399c44b96fc194ef52b12769e99664ccf0c08456",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "word/document.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "POC-docx-basic 中文字体复杂排版\n正文",
+      "reopenedText": "POC-docx-basic 中文字体复杂排版\n正文\n [round-trip]",
+      "sourceTextLength": 26,
+      "reopenedTextLength": 40,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/docx-basic.docx",
+      "writeAttempted": true
     },
     {
       "id": "docx-table",
@@ -54,20 +83,30 @@
       "features": [
         "表格"
       ],
-      "sourcePath": "tests/fixtures/office/generated/docx-table.docx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "replace-text",
+        "find": "CELL_A1",
+        "replace": "CELL_A1_EDITED"
       },
-      "sourceSha256": "2913abf53717061c5724ca45f0ffdd9de227d178d8fbda23a21ee5135ec2e151",
-      "writeAttempted": false
+      "status": "PASS",
+      "sourceBytes": 2004,
+      "outputBytes": 5149,
+      "sourceSha256": "03069c39719557451e69adb5390ba9fd00abd9873524c8d217f491aa7f68f78b",
+      "sourceSha256After": "03069c39719557451e69adb5390ba9fd00abd9873524c8d217f491aa7f68f78b",
+      "outputSha256": "4b14edd677651ec0195afec16c8ab79895f5d7006b77703ec142733e2b5c6127",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "word/document.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "POC-docx-table 中文字体复杂排版\n表格\nCELL_A1",
+      "reopenedText": "POC-docx-table 中文字体复杂排版\n表格\nCELL_A1_EDITED",
+      "sourceTextLength": 34,
+      "reopenedTextLength": 41,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/docx-table.docx",
+      "writeAttempted": true
     },
     {
       "id": "docx-image",
@@ -75,20 +114,29 @@
       "features": [
         "图片"
       ],
-      "sourcePath": "tests/fixtures/office/generated/docx-image.docx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "append-text",
+        "text": " [image-check]"
       },
-      "sourceSha256": "22d35cd5b26b5c6526d7bc5a7b85d94a9bb7c9492882db38bfc64daa5e2c0180",
-      "writeAttempted": false
+      "status": "PASS",
+      "sourceBytes": 2847,
+      "outputBytes": 5143,
+      "sourceSha256": "2d127f02819fe4a798b6873861c8714a16f5d430c294356039d74cdb7f7d21da",
+      "sourceSha256After": "2d127f02819fe4a798b6873861c8714a16f5d430c294356039d74cdb7f7d21da",
+      "outputSha256": "48f009b46bcbbd1b2697ef12ca215133b0db634f31b20b8e824ffa7bb4f9aab5",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "word/document.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "POC-docx-image 中文字体复杂排版\n图片",
+      "reopenedText": "POC-docx-image 中文字体复杂排版\n图片\n [image-check]",
+      "sourceTextLength": 26,
+      "reopenedTextLength": 41,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/docx-image.docx",
+      "writeAttempted": true
     },
     {
       "id": "docx-comments",
@@ -96,20 +144,29 @@
       "features": [
         "批注"
       ],
-      "sourcePath": "tests/fixtures/office/generated/docx-comments.docx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "append-text",
+        "text": " [comment-check]"
       },
-      "sourceSha256": "776a5ec27310eed7d7f6ff281cb8f71be1eeb65caf3c86186136f9437a6d21f7",
-      "writeAttempted": false
+      "status": "PASS",
+      "sourceBytes": 2615,
+      "outputBytes": 5145,
+      "sourceSha256": "9b3adeaa0452bb5800bc7f1b3ddb8ae09f2ba7f007deb4ff6f7f27b546768612",
+      "sourceSha256After": "9b3adeaa0452bb5800bc7f1b3ddb8ae09f2ba7f007deb4ff6f7f27b546768612",
+      "outputSha256": "88693e8a32372813720bc8febe340414e91b36722ebdf86aa19dc1a65f3659d5",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "word/document.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "POC-docx-comments 中文字体复杂排版\n批注",
+      "reopenedText": "POC-docx-comments 中文字体复杂排版\n批注\n [comment-check]",
+      "sourceTextLength": 29,
+      "reopenedTextLength": 46,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/docx-comments.docx",
+      "writeAttempted": true
     },
     {
       "id": "docx-cjk-font",
@@ -117,20 +174,29 @@
       "features": [
         "中文字体"
       ],
-      "sourcePath": "tests/fixtures/office/generated/docx-cjk-font.docx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "append-text",
+        "text": " [中文修改]"
       },
-      "sourceSha256": "f46bc4f95a0f1b9f683a888069c2837bebdfc2a613eaba9e6bc555baba3ccbae",
-      "writeAttempted": false
+      "status": "PASS",
+      "sourceBytes": 1932,
+      "outputBytes": 5147,
+      "sourceSha256": "cdc35dc9e707efbb1c4912c6b514348dc6569e6583f04f2aa57fc42635f76aea",
+      "sourceSha256After": "cdc35dc9e707efbb1c4912c6b514348dc6569e6583f04f2aa57fc42635f76aea",
+      "outputSha256": "41d838f46dd2314997db06285d25181d993ba34913813c29c05027a7c85596fe",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "word/document.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "POC-docx-cjk-font 中文字体复杂排版\n中文字体",
+      "reopenedText": "POC-docx-cjk-font 中文字体复杂排版\n中文字体\n [中文修改]",
+      "sourceTextLength": 31,
+      "reopenedTextLength": 39,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/docx-cjk-font.docx",
+      "writeAttempted": true
     },
     {
       "id": "docx-complex-layout",
@@ -139,20 +205,29 @@
         "复杂排版",
         "页眉页脚"
       ],
-      "sourcePath": "tests/fixtures/office/generated/docx-complex-layout.docx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "append-text",
+        "text": " [layout-check]"
       },
-      "sourceSha256": "9351f3267303916e1129901647631fd5dfa9b4a81bfebe28ae4cfe6a9d5e9658",
-      "writeAttempted": false
+      "status": "PASS",
+      "sourceBytes": 1951,
+      "outputBytes": 5161,
+      "sourceSha256": "a2d7a5b4087b82595310c8368f9798f65293fa569811a5f8aad46f4668d4fd6c",
+      "sourceSha256After": "a2d7a5b4087b82595310c8368f9798f65293fa569811a5f8aad46f4668d4fd6c",
+      "outputSha256": "7d50816b2e13cd163833cf95a5848a048c59dcad47e80f0ec06c6a2e41ac51a8",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "word/document.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "POC-docx-complex-layout 中文字体复杂排版\n复杂排版 页眉页脚",
+      "reopenedText": "POC-docx-complex-layout 中文字体复杂排版\n复杂排版 页眉页脚\n [layout-check]",
+      "sourceTextLength": 42,
+      "reopenedTextLength": 58,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/docx-complex-layout.docx",
+      "writeAttempted": true
     },
     {
       "id": "docx-header-footer",
@@ -160,20 +235,29 @@
       "features": [
         "页眉页脚"
       ],
-      "sourcePath": "tests/fixtures/office/generated/docx-header-footer.docx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "append-text",
+        "text": " [header-footer-check]"
       },
-      "sourceSha256": "4ee744b95597da9f2b54cc78fbff1d34f57aef3c3469da2245bc1ea39499fc4f",
-      "writeAttempted": false
+      "status": "PASS",
+      "sourceBytes": 1937,
+      "outputBytes": 5159,
+      "sourceSha256": "fa586f6566a6f713d3a0d57ff00e09c4816d5974b10dc2dfa0811de37c37e165",
+      "sourceSha256After": "fa586f6566a6f713d3a0d57ff00e09c4816d5974b10dc2dfa0811de37c37e165",
+      "outputSha256": "6170eac4021a4b9fb004ef4a87ad2dcd53ad4cbf0be5dca07fa8036aa4ef67f8",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "word/document.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "POC-docx-header-footer 中文字体复杂排版\n页眉页脚",
+      "reopenedText": "POC-docx-header-footer 中文字体复杂排版\n页眉页脚\n [header-footer-check]",
+      "sourceTextLength": 36,
+      "reopenedTextLength": 59,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/docx-header-footer.docx",
+      "writeAttempted": true
     },
     {
       "id": "docx-long-text",
@@ -182,20 +266,29 @@
         "长文本",
         "中文字体"
       ],
-      "sourcePath": "tests/fixtures/office/generated/docx-long-text.docx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "append-text",
+        "text": " [long-text-check]"
       },
-      "sourceSha256": "10b09f93f1549c6f46c177abbd370864d3bcc5fb7407b19f200dd424135c4c55",
-      "writeAttempted": false
+      "status": "PASS",
+      "sourceBytes": 1943,
+      "outputBytes": 5152,
+      "sourceSha256": "f03560c2ee8fe417932efde39ae99bf60462cd29bbe46a67b8123d6e3484316d",
+      "sourceSha256After": "f03560c2ee8fe417932efde39ae99bf60462cd29bbe46a67b8123d6e3484316d",
+      "outputSha256": "e97b2b72af5f8274dd205634b906b61f9fa7f29d06a84e7b872f7cb6492e4d8f",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "word/document.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "POC-docx-long-text 中文字体复杂排版\n长文本 中文字体",
+      "reopenedText": "POC-docx-long-text 中文字体复杂排版\n长文本 中文字体\n [long-text-check]",
+      "sourceTextLength": 36,
+      "reopenedTextLength": 55,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/docx-long-text.docx",
+      "writeAttempted": true
     },
     {
       "id": "pptx-basic",
@@ -203,20 +296,29 @@
       "features": [
         "单页演示"
       ],
-      "sourcePath": "tests/fixtures/office/generated/pptx-basic.pptx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "append-text",
+        "text": " [round-trip]"
       },
+      "status": "PASS",
+      "sourceBytes": 2375,
+      "outputBytes": 8078,
       "sourceSha256": "78d5b4e3d70e0a00bc410c6a0467e875fb68b06e23f31749bb3bdb7cdb427068",
-      "writeAttempted": false
+      "sourceSha256After": "78d5b4e3d70e0a00bc410c6a0467e875fb68b06e23f31749bb3bdb7cdb427068",
+      "outputSha256": "1c765e7025deebbc66e32097567b37bd7a9324380eac187598654bbb38c7438e",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "ppt/presentation.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "POC-pptx-basic 中文字体复杂排版 单页演示",
+      "reopenedText": "POC-pptx-basic 中文字体复杂排版 单页演示\n [round-trip]",
+      "sourceTextLength": 28,
+      "reopenedTextLength": 42,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/pptx-basic.pptx",
+      "writeAttempted": true
     },
     {
       "id": "pptx-table",
@@ -224,20 +326,29 @@
       "features": [
         "表格"
       ],
-      "sourcePath": "tests/fixtures/office/generated/pptx-table.pptx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "append-text",
+        "text": " [table-check]"
       },
+      "status": "PASS",
+      "sourceBytes": 2369,
+      "outputBytes": 8070,
       "sourceSha256": "d131a38e8342188dbd1a7f3dd3b142a61fc598b9e142bbc8f9de4d8fd381cffa",
-      "writeAttempted": false
+      "sourceSha256After": "d131a38e8342188dbd1a7f3dd3b142a61fc598b9e142bbc8f9de4d8fd381cffa",
+      "outputSha256": "96a11690efd27b711dd42a4238452990a6ed3d62b00031c8f93140c1a17a734e",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "ppt/presentation.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "POC-pptx-table 中文字体复杂排版 表格",
+      "reopenedText": "POC-pptx-table 中文字体复杂排版 表格\n [table-check]",
+      "sourceTextLength": 26,
+      "reopenedTextLength": 41,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/pptx-table.pptx",
+      "writeAttempted": true
     },
     {
       "id": "pptx-image",
@@ -245,20 +356,29 @@
       "features": [
         "图片"
       ],
-      "sourcePath": "tests/fixtures/office/generated/pptx-image.pptx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "append-text",
+        "text": " [image-check]"
       },
+      "status": "PASS",
+      "sourceBytes": 2553,
+      "outputBytes": 8063,
       "sourceSha256": "d1004d27f6e396ee89e7eddbc38e439cc0c476d46ee77616948b94864d1e9992",
-      "writeAttempted": false
+      "sourceSha256After": "d1004d27f6e396ee89e7eddbc38e439cc0c476d46ee77616948b94864d1e9992",
+      "outputSha256": "bd3221183ea60cebb6dfd01dbc9347bf6f07091060473b276de494773b8ebaf2",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "ppt/presentation.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "POC-pptx-image 中文字体复杂排版 图片",
+      "reopenedText": "POC-pptx-image 中文字体复杂排版 图片\n [image-check]",
+      "sourceTextLength": 26,
+      "reopenedTextLength": 41,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/pptx-image.pptx",
+      "writeAttempted": true
     },
     {
       "id": "pptx-chart",
@@ -266,20 +386,29 @@
       "features": [
         "图表"
       ],
-      "sourcePath": "tests/fixtures/office/generated/pptx-chart.pptx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "append-text",
+        "text": " [chart-check]"
       },
+      "status": "PASS",
+      "sourceBytes": 2918,
+      "outputBytes": 8070,
       "sourceSha256": "44cde99765e7f253aa420da660fbc5c4ad56009af3edd0d4c9b0838fc379824a",
-      "writeAttempted": false
+      "sourceSha256After": "44cde99765e7f253aa420da660fbc5c4ad56009af3edd0d4c9b0838fc379824a",
+      "outputSha256": "96854b67d806872ea3ef55ac80b4d5438c1a2c1a0d27d2ece5ac398703b31629",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "ppt/presentation.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "POC-pptx-chart 中文字体复杂排版 图表",
+      "reopenedText": "POC-pptx-chart 中文字体复杂排版 图表\n [chart-check]",
+      "sourceTextLength": 26,
+      "reopenedTextLength": 41,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/pptx-chart.pptx",
+      "writeAttempted": true
     },
     {
       "id": "pptx-comments",
@@ -287,20 +416,29 @@
       "features": [
         "批注"
       ],
-      "sourcePath": "tests/fixtures/office/generated/pptx-comments.pptx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "append-text",
+        "text": " [comment-check]"
       },
+      "status": "PASS",
+      "sourceBytes": 2372,
+      "outputBytes": 8068,
       "sourceSha256": "2af0adcbe2ea44c278d3cd41e1a96957993e97a483c621613279256f2aee7a30",
-      "writeAttempted": false
+      "sourceSha256After": "2af0adcbe2ea44c278d3cd41e1a96957993e97a483c621613279256f2aee7a30",
+      "outputSha256": "bbcab4b61b3f2bee9d7b48cef6fe8a565d0093d7b72c8ef7e4bad9f4c1cd0f92",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "ppt/presentation.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "POC-pptx-comments 中文字体复杂排版 批注",
+      "reopenedText": "POC-pptx-comments 中文字体复杂排版 批注\n [comment-check]",
+      "sourceTextLength": 29,
+      "reopenedTextLength": 46,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/pptx-comments.pptx",
+      "writeAttempted": true
     },
     {
       "id": "pptx-cjk-font",
@@ -308,20 +446,29 @@
       "features": [
         "中文字体"
       ],
-      "sourcePath": "tests/fixtures/office/generated/pptx-cjk-font.pptx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "append-text",
+        "text": " [中文修改]"
       },
+      "status": "PASS",
+      "sourceBytes": 2378,
+      "outputBytes": 8068,
       "sourceSha256": "f19f856ad61c91ecfbea61e3e6af53d0b1aceb7f96c0c77dc9891e35a64355b4",
-      "writeAttempted": false
+      "sourceSha256After": "f19f856ad61c91ecfbea61e3e6af53d0b1aceb7f96c0c77dc9891e35a64355b4",
+      "outputSha256": "d392489ab5c2a504a5f4e36963cee2d792c244aaae01fc11aeb2719b7b36ddfb",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "ppt/presentation.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "POC-pptx-cjk-font 中文字体复杂排版 中文字体",
+      "reopenedText": "POC-pptx-cjk-font 中文字体复杂排版 中文字体\n [中文修改]",
+      "sourceTextLength": 31,
+      "reopenedTextLength": 39,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/pptx-cjk-font.pptx",
+      "writeAttempted": true
     },
     {
       "id": "pptx-complex-layout",
@@ -330,20 +477,29 @@
         "复杂排版",
         "多页"
       ],
-      "sourcePath": "tests/fixtures/office/generated/pptx-complex-layout.pptx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "append-text",
+        "text": " [layout-check]"
       },
+      "status": "PASS",
+      "sourceBytes": 2391,
+      "outputBytes": 8077,
       "sourceSha256": "58f989ae2eee37a1c6e5d680e2a61243c33e50761c73cabec9f1ea2602943af0",
-      "writeAttempted": false
+      "sourceSha256After": "58f989ae2eee37a1c6e5d680e2a61243c33e50761c73cabec9f1ea2602943af0",
+      "outputSha256": "fff202776696b7d5337fbf4bc262104540061243e6d1fe8d43602524b663b290",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "ppt/presentation.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "POC-pptx-complex-layout 中文字体复杂排版 复杂排版 多页",
+      "reopenedText": "POC-pptx-complex-layout 中文字体复杂排版 复杂排版 多页\n [layout-check]",
+      "sourceTextLength": 40,
+      "reopenedTextLength": 56,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/pptx-complex-layout.pptx",
+      "writeAttempted": true
     },
     {
       "id": "pptx-multi-slide",
@@ -353,20 +509,29 @@
         "图片",
         "图表"
       ],
-      "sourcePath": "tests/fixtures/office/generated/pptx-multi-slide.pptx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "append-text",
+        "text": " [multi-slide-check]"
       },
+      "status": "PASS",
+      "sourceBytes": 3122,
+      "outputBytes": 8087,
       "sourceSha256": "c2b2498098cf666e95f54792f00780fce97ad21fd3163f2c8bef9d4bc9583914",
-      "writeAttempted": false
+      "sourceSha256After": "c2b2498098cf666e95f54792f00780fce97ad21fd3163f2c8bef9d4bc9583914",
+      "outputSha256": "b89a1b3d996d9e448659a76b91b99700059b298a570a85688cc7bbc0dc87f6b5",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "ppt/presentation.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "POC-pptx-multi-slide 中文字体复杂排版 多页 图片 图表",
+      "reopenedText": "POC-pptx-multi-slide 中文字体复杂排版 多页 图片 图表\n [multi-slide-check]",
+      "sourceTextLength": 38,
+      "reopenedTextLength": 59,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/pptx-multi-slide.pptx",
+      "writeAttempted": true
     },
     {
       "id": "xlsx-basic",
@@ -374,20 +539,31 @@
       "features": [
         "单表"
       ],
-      "sourcePath": "tests/fixtures/office/generated/xlsx-basic.xlsx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "set-cell-value",
+        "sheet": "Sheet1",
+        "cell": "B2",
+        "value": "42"
       },
+      "status": "PASS",
+      "sourceBytes": 2259,
+      "outputBytes": 5531,
       "sourceSha256": "2e0d4cb31d0d6698328ff7e899ccd59cda2bb53b58f3dc42d5d9195a75f406ed",
-      "writeAttempted": false
+      "sourceSha256After": "2e0d4cb31d0d6698328ff7e899ccd59cda2bb53b58f3dc42d5d9195a75f406ed",
+      "outputSha256": "cb30b4732c081472aecdf6ba749f56fd35b8dc7125b2d5d05a390877a4422530",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "xl/workbook.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "2",
+      "reopenedText": "42",
+      "sourceTextLength": 1,
+      "reopenedTextLength": 2,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/xlsx-basic.xlsx",
+      "writeAttempted": true
     },
     {
       "id": "xlsx-table",
@@ -395,20 +571,31 @@
       "features": [
         "表格"
       ],
-      "sourcePath": "tests/fixtures/office/generated/xlsx-table.xlsx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "set-cell-value",
+        "sheet": "Sheet1",
+        "cell": "B2",
+        "value": "TABLE_EDITED"
       },
+      "status": "PASS",
+      "sourceBytes": 2259,
+      "outputBytes": 5529,
       "sourceSha256": "99d49453a1ce4a1c8542721ad021f47291849910d92950be6c7481ee022f2b48",
-      "writeAttempted": false
+      "sourceSha256After": "99d49453a1ce4a1c8542721ad021f47291849910d92950be6c7481ee022f2b48",
+      "outputSha256": "79221f51c5250ec5e3256862c49fa5e7406669859202eb34aae5f42d529058e8",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "xl/workbook.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "2",
+      "reopenedText": "TABLE_EDITED",
+      "sourceTextLength": 1,
+      "reopenedTextLength": 12,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/xlsx-table.xlsx",
+      "writeAttempted": true
     },
     {
       "id": "xlsx-image",
@@ -416,20 +603,31 @@
       "features": [
         "图片"
       ],
-      "sourcePath": "tests/fixtures/office/generated/xlsx-image.xlsx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "set-cell-value",
+        "sheet": "Sheet1",
+        "cell": "B2",
+        "value": "IMAGE_EDITED"
       },
+      "status": "PASS",
+      "sourceBytes": 2441,
+      "outputBytes": 5529,
       "sourceSha256": "c3b2a36c9e5c9008b14f7a36ae6ae3874f692282eb41aa5245e7cb4ec85fac84",
-      "writeAttempted": false
+      "sourceSha256After": "c3b2a36c9e5c9008b14f7a36ae6ae3874f692282eb41aa5245e7cb4ec85fac84",
+      "outputSha256": "6562b297788fb730c18ff5e3f3403d45f9c5e576627d4daaa63cd7910a504169",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "xl/workbook.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "2",
+      "reopenedText": "IMAGE_EDITED",
+      "sourceTextLength": 1,
+      "reopenedTextLength": 12,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/xlsx-image.xlsx",
+      "writeAttempted": true
     },
     {
       "id": "xlsx-chart",
@@ -437,20 +635,31 @@
       "features": [
         "图表"
       ],
-      "sourcePath": "tests/fixtures/office/generated/xlsx-chart.xlsx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "set-cell-value",
+        "sheet": "Sheet1",
+        "cell": "B2",
+        "value": "CHART_EDITED"
       },
+      "status": "PASS",
+      "sourceBytes": 2555,
+      "outputBytes": 5529,
       "sourceSha256": "48cc6b51ef69f032446fb94aa0cddd4e4905ecfd53d241d924f6299a16b26032",
-      "writeAttempted": false
+      "sourceSha256After": "48cc6b51ef69f032446fb94aa0cddd4e4905ecfd53d241d924f6299a16b26032",
+      "outputSha256": "0eebc34f82df71c539ddfc8fce538847b5ec9e81c7b838e397649de02b360e19",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "xl/workbook.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "2",
+      "reopenedText": "CHART_EDITED",
+      "sourceTextLength": 1,
+      "reopenedTextLength": 12,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/xlsx-chart.xlsx",
+      "writeAttempted": true
     },
     {
       "id": "xlsx-comments",
@@ -458,20 +667,31 @@
       "features": [
         "批注"
       ],
-      "sourcePath": "tests/fixtures/office/generated/xlsx-comments.xlsx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "set-cell-value",
+        "sheet": "Sheet1",
+        "cell": "B2",
+        "value": "COMMENT_EDITED"
       },
+      "status": "PASS",
+      "sourceBytes": 2755,
+      "outputBytes": 5532,
       "sourceSha256": "b91fe7f6bc8e635a3d8ec853787d328bdf2c9a3f608a7a0dfa93143f89561203",
-      "writeAttempted": false
+      "sourceSha256After": "b91fe7f6bc8e635a3d8ec853787d328bdf2c9a3f608a7a0dfa93143f89561203",
+      "outputSha256": "658c66ee3f2f4d47b5795b0108ef39281f11e2e74b41c49887a1c60d0712cf38",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "xl/workbook.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "2",
+      "reopenedText": "COMMENT_EDITED",
+      "sourceTextLength": 1,
+      "reopenedTextLength": 14,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/xlsx-comments.xlsx",
+      "writeAttempted": true
     },
     {
       "id": "xlsx-cjk-font",
@@ -479,20 +699,31 @@
       "features": [
         "中文字体"
       ],
-      "sourcePath": "tests/fixtures/office/generated/xlsx-cjk-font.xlsx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "set-cell-value",
+        "sheet": "Sheet1",
+        "cell": "B2",
+        "value": "中文修改"
       },
+      "status": "PASS",
+      "sourceBytes": 2262,
+      "outputBytes": 5544,
       "sourceSha256": "2456a762ac8ec1793c6696f51db464136c79875ef4ae9bd126910e1879cd8158",
-      "writeAttempted": false
+      "sourceSha256After": "2456a762ac8ec1793c6696f51db464136c79875ef4ae9bd126910e1879cd8158",
+      "outputSha256": "1e83b0433e6f41c8d52a5e6e22df1d5f6862708ab992fc4dee802f29c321714a",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "xl/workbook.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "2",
+      "reopenedText": "中文修改",
+      "sourceTextLength": 1,
+      "reopenedTextLength": 4,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/xlsx-cjk-font.xlsx",
+      "writeAttempted": true
     },
     {
       "id": "xlsx-complex-layout",
@@ -501,20 +732,31 @@
         "复杂排版",
         "合并单元格"
       ],
-      "sourcePath": "tests/fixtures/office/generated/xlsx-complex-layout.xlsx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "set-cell-value",
+        "sheet": "Sheet1",
+        "cell": "B2",
+        "value": "LAYOUT_EDITED"
       },
+      "status": "PASS",
+      "sourceBytes": 2268,
+      "outputBytes": 5537,
       "sourceSha256": "d0bfd2b48d3d8aa71d25c3274643ca687f901af043f7030e2752410dd843e56e",
-      "writeAttempted": false
+      "sourceSha256After": "d0bfd2b48d3d8aa71d25c3274643ca687f901af043f7030e2752410dd843e56e",
+      "outputSha256": "8392c6021a59b5232816d5b36ea805e18c1e46c2b0bdf33482bf4423352963cf",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "xl/workbook.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "2",
+      "reopenedText": "LAYOUT_EDITED",
+      "sourceTextLength": 1,
+      "reopenedTextLength": 13,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/xlsx-complex-layout.xlsx",
+      "writeAttempted": true
     },
     {
       "id": "xlsx-formula",
@@ -524,20 +766,55 @@
         "图表",
         "中文字体"
       ],
-      "sourcePath": "tests/fixtures/office/generated/xlsx-formula.xlsx",
-      "status": "FAIL",
-      "error": {
-        "phase": "open",
-        "code": "ZETA_RUNTIME_UNAVAILABLE",
-        "message": "文档无法由 ZetaOffice 打开",
-        "fallback": {
-          "mode": "read-only-preview",
-          "available": false,
-          "reason": "未配置可用的只读预览运行时"
-        }
+      "edit": {
+        "kind": "set-cell-value",
+        "sheet": "Sheet1",
+        "cell": "B2",
+        "value": "FORMULA_EDITED"
       },
+      "status": "PASS",
+      "sourceBytes": 2574,
+      "outputBytes": 5532,
       "sourceSha256": "9a99627ad5ffb9c88725f8ae255f5f4ce7a5eecd699df3a156f6b0718ce34423",
-      "writeAttempted": false
+      "sourceSha256After": "9a99627ad5ffb9c88725f8ae255f5f4ce7a5eecd699df3a156f6b0718ce34423",
+      "outputSha256": "4cc284528e452b9c397c4a53458482813afe154c99988bcd79f5452287f82502",
+      "sourcePreserved": true,
+      "validZip": true,
+      "requiredEntry": "xl/workbook.xml",
+      "cmd": "roundtrip",
+      "reopened": true,
+      "markerPresent": true,
+      "sourceText": "3",
+      "reopenedText": "FORMULA_EDITED",
+      "sourceTextLength": 1,
+      "reopenedTextLength": 14,
+      "error": null,
+      "sourcePath": "public/editor-poc/samples/xlsx-formula.xlsx",
+      "writeAttempted": true
+    }
+  ],
+  "smokeTests": [
+    {
+      "id": "plan-real-docx",
+      "format": "docx",
+      "sourcePath": "public/editor-poc/samples/plan.docx",
+      "status": "PASS",
+      "sourceBytes": 220761,
+      "outputBytes": 32375,
+      "sourceSha256": "c0da3a929c3165e90cddd56f62d4574edd646433c6c81d6532f51d2927ac7c4c",
+      "outputSha256": "67b16eb1b51ac3cc870a987a95bcef9a58311eed987b36448395174fdfc15928",
+      "sourcePreserved": true,
+      "reopened": true,
+      "markerPresent": true,
+      "operations": [
+        "open",
+        "append-text",
+        "saveAs",
+        "close",
+        "reopen"
+      ],
+      "note": "真实产品方案 DOCX smoke sample; matrix summary remains 24 generated fixtures",
+      "sourceSha256After": "c0da3a929c3165e90cddd56f62d4574edd646433c6c81d6532f51d2927ac7c4c"
     }
   ]
 }
