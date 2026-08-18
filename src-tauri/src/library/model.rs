@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 
 static IDENTIFIER_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-pub const LIBRARY_SCHEMA_VERSION: i64 = 1;
+pub const LIBRARY_SCHEMA_VERSION: i64 = 2;
 
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(transparent)]
@@ -229,6 +229,93 @@ pub struct DocumentRecord {
     pub content_sha256: String,
     pub status: DocumentStatus,
     pub content_state: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct CollectionId(pub String);
+
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct TagId(pub String);
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectionRecord {
+    pub id: CollectionId,
+    pub name: String,
+    pub created_at_ms: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagRecord {
+    pub id: TagId,
+    pub name: String,
+    pub created_at_ms: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceLocator {
+    pub kind: String,
+    pub page: Option<u32>,
+    pub slide: Option<u32>,
+    pub paragraph: Option<u32>,
+    pub available: bool,
+    pub reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchSnippet {
+    pub field: String,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchDocument {
+    pub document: DocumentRecord,
+    pub snippets: Vec<SearchSnippet>,
+    pub source_locator: SourceLocator,
+    pub tags: Vec<TagRecord>,
+    pub collections: Vec<CollectionRecord>,
+    pub is_favorite: bool,
+    pub index_state: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchQuery {
+    pub text: Option<String>,
+    pub formats: Vec<DocumentFormat>,
+    pub modified_after_ms: Option<i64>,
+    pub modified_before_ms: Option<i64>,
+    pub source_root_ids: Vec<SourceRootId>,
+    pub collection_id: Option<CollectionId>,
+    pub tag_ids: Vec<TagId>,
+    pub statuses: Vec<DocumentStatus>,
+    pub favorite_only: bool,
+    pub recent_only: bool,
+    pub limit: u32,
+    pub offset: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResults {
+    pub items: Vec<SearchDocument>,
+    pub total: u64,
+    pub query_time_ms: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexRebuildSummary {
+    pub indexed_count: u64,
+    pub failed_count: u64,
+    pub duration_ms: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

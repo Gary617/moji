@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-墨集是面向 Windows 10/11 的本地文档管理桌面应用。本仓库采用 Tauri 2 + React + TypeScript + Rust 的本地模块化单体架构。当前已完成工程基线、Office 编辑器 POC 和本地资料库元数据/扫描核心；全文检索、OCR、AI、账号、同步和正式写回仍未实现。
+墨集是面向 Windows 10/11 的本地文档管理桌面应用。本仓库采用 Tauri 2 + React + TypeScript + Rust 的本地模块化单体架构。当前已完成工程基线、Office 编辑器 POC、本地资料库元数据/扫描核心和全文检索/虚拟组织；OCR、AI、账号、同步和正式写回仍未实现。
 
 ## 目录结构
 
@@ -136,7 +136,7 @@ library_poll_watch({ sourceRootId }) -> IpcResponse<WatchPollResult>
 
 ## 本地资料库契约（工期 2）
 
-SQLite 数据库位于应用数据目录的 `library.sqlite3`，migration 版本为 `1`，且重复运行不删除数据。私有表为：
+SQLite 数据库位于应用数据目录的 `library.sqlite3`，migration 版本为 `2`，且重复运行不删除数据。工期 2 建立的私有表为：
 
 ```text
 source_roots(id, kind, canonical_path, display_name, created_at_ms, active)
@@ -154,6 +154,16 @@ scan_events(id, scan_job_id, document_id?, kind, occurred_at_ms, details_json)
 - 错误使用稳定机器码，例如 `UNAUTHORIZED_PATH`、`EXCLUDED_PATH`、`PERMISSION_DENIED`、`HASH_READ_FAILED`、`INVALID_JOB_STATE`。错误消息和事件详情不包含绝对路径或文档正文。
 - `library_start_scan` 和 watcher 轮询只创建持久化队列任务并立即返回；后台 worker 在独立 SQLite 连接执行元数据扫描，按文件更新进度，暂停/取消在文件边界生效，恢复/重试重新入队。`library_scan_events` 是结构化进度和结果事件入口。
 - `notify` 只被封装在 `library/watcher.rs`；监听事件必须先过滤到授权根目录，再由 `poll_watch` 创建同一套增量扫描任务。下一阶段不得直接使用 `notify` 或 SQLite 私有表。
+
+### 搜索与资料组织契约（工期 3）
+
+- migration v2 新增 `collections`、`tags`、`document_collections`、`document_tags`、`document_usage`、`document_search_state`、`document_search_content` 和 `document_fts`。集合与标签只用 `DocumentId` 多对多引用，绝不移动、复制或更改原文件路径。
+- `document_fts` 是 SQLite FTS5 `trigram` 索引，字段为 `title`、`body`、`path`、`tags` 和 `ocr`；正文和 OCR 是预留内容字段，当前扫描器不做提取或 OCR。三字及以上查询使用 FTS5 中文子串匹配；一至两字查询以标题、路径和标签 `LIKE` 回退。
+- `library_search({ text?, formats?, modifiedAfterMs?, modifiedBeforeMs?, sourceRootIds?, collectionId?, tagIds?, statuses?, favoriteOnly?, recentOnly?, limit?, offset? }) -> IpcResponse<SearchResults>` 是稳定查询 API。结果使用 `DocumentId`，包含展示元数据、匹配片段、标签、集合、收藏状态和 `SourceLocator`；绝对路径不是主键，UI 仅显示路径尾部。
+- FTS `bm25` 权重固定为标题 `12`、正文 `1`、路径 `4`、标签 `3`、OCR `1`。过滤条件均为 AND 组合；收藏和最近使用来自 `document_usage`，最近使用以选择结果时的时间戳排序。
+- `SourceLocator` 当前总是 `available: false`，并给出中文未实现原因；工期 4 的查看器可补充页码、幻灯片或段落值，但不得移除或重命名该结构。
+- 搜索相关 IPC 还包括 `library_list_sources`、`library_list_collections`、`library_list_tags`、`library_create_collection`、`library_create_tag`、`library_set_collection_membership`、`library_set_tag_membership`、`library_set_favorite`、`library_record_recent_use` 和 `library_rebuild_search_index`；全部沿用既有成功/失败信封。
+- 扫描器是唯一文件/元数据入口。每个文档元数据 upsert 后尝试刷新索引，索引状态独立保存在 `document_search_state`；索引写入失败不会回滚或删除 `Document` 元数据，`library_rebuild_search_index` 可从已登记数据重建。
 
 ## EditorAdapter 契约（工期 1）
 

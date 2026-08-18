@@ -6,8 +6,10 @@ use tauri::State;
 
 use crate::library::{
     model::{
-        LibraryError, LibraryErrorCode, LibraryResult, ScanEvent, ScanJobId, ScanJobRecord,
-        ScanSummary, SourceRegistration, SourceRootId, WatchPollResult, WatchStatus,
+        CollectionId, CollectionRecord, DocumentId, IndexRebuildSummary, LibraryError,
+        LibraryErrorCode, LibraryResult, ScanEvent, ScanJobId, ScanJobRecord, ScanSummary,
+        SearchQuery, SearchResults, SourceRegistration, SourceRootId, SourceRootRecord, TagId,
+        TagRecord, WatchPollResult, WatchStatus,
     },
     queue::ScanQueue,
     scanner::LibraryService,
@@ -85,6 +87,33 @@ pub(crate) struct ScanRequest {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ScanJobRequest {
     pub scan_job_id: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NameRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DocumentRelationRequest {
+    pub document_id: String,
+    pub relation_id: String,
+    pub included: bool,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FavoriteRequest {
+    pub document_id: String,
+    pub favorite: bool,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DocumentRequest {
+    pub document_id: String,
 }
 
 #[tauri::command]
@@ -215,6 +244,110 @@ pub(crate) fn library_poll_watch(
         }
         IpcResponse::Error { error } => IpcResponse::error(error),
     }
+}
+
+#[tauri::command]
+pub(crate) fn library_search(
+    request: SearchQuery,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<SearchResults> {
+    with_service(&state, |service| service.database.search(&request))
+}
+
+#[tauri::command]
+pub(crate) fn library_list_collections(
+    state: State<'_, LibraryState>,
+) -> IpcResponse<Vec<CollectionRecord>> {
+    with_service(&state, |service| service.database.collections())
+}
+
+#[tauri::command]
+pub(crate) fn library_list_sources(
+    state: State<'_, LibraryState>,
+) -> IpcResponse<Vec<SourceRootRecord>> {
+    with_service(&state, |service| service.database.sources())
+}
+
+#[tauri::command]
+pub(crate) fn library_list_tags(state: State<'_, LibraryState>) -> IpcResponse<Vec<TagRecord>> {
+    with_service(&state, |service| service.database.tags())
+}
+
+#[tauri::command]
+pub(crate) fn library_create_collection(
+    request: NameRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<CollectionRecord> {
+    with_service(&state, |service| {
+        service.database.create_collection(&request.name)
+    })
+}
+
+#[tauri::command]
+pub(crate) fn library_create_tag(
+    request: NameRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<TagRecord> {
+    with_service(&state, |service| service.database.create_tag(&request.name))
+}
+
+#[tauri::command]
+pub(crate) fn library_set_collection_membership(
+    request: DocumentRelationRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<()> {
+    let document_id = DocumentId(request.document_id);
+    let collection_id = CollectionId(request.relation_id);
+    with_service(&state, |service| {
+        service
+            .database
+            .set_collection_membership(&document_id, &collection_id, request.included)
+    })
+}
+
+#[tauri::command]
+pub(crate) fn library_set_tag_membership(
+    request: DocumentRelationRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<()> {
+    let document_id = DocumentId(request.document_id);
+    let tag_id = TagId(request.relation_id);
+    with_service(&state, |service| {
+        service
+            .database
+            .set_tag_membership(&document_id, &tag_id, request.included)
+    })
+}
+
+#[tauri::command]
+pub(crate) fn library_set_favorite(
+    request: FavoriteRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<()> {
+    let document_id = DocumentId(request.document_id);
+    with_service(&state, |service| {
+        service
+            .database
+            .set_favorite(&document_id, request.favorite)
+    })
+}
+
+#[tauri::command]
+pub(crate) fn library_record_recent_use(
+    request: DocumentRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<()> {
+    let document_id = DocumentId(request.document_id);
+    with_service(&state, |service| {
+        service.database.record_recent_use(&document_id)
+    })
+}
+
+#[tauri::command]
+pub(crate) fn library_rebuild_search_index(
+    state: State<'_, LibraryState>,
+) -> IpcResponse<IndexRebuildSummary> {
+    with_service(&state, |service| service.database.rebuild_search_index())
 }
 
 fn schedule_response<T, F>(

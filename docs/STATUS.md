@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-工期 2：本地资料库、目录授权与增量索引（已实现）
+工期 3：全文检索与资料组织（已实现）
 
 ## 已完成
 
@@ -19,6 +19,10 @@
 - 已实现持久化扫描队列：启动和 watcher 轮询异步调度后台 worker，worker 按文件边界响应暂停/取消并持久化进度；恢复和失败重试重新入队，数据库重开时 `running` 任务恢复为 `paused`。`notify` 事件仍只在授权根目录内触发同一套增量扫描。
 - 已通过 Rust 19/19、前端 7/7 和前端生产构建验证。
 - 已通过带 Rustup PATH 的 `pnpm build:desktop`，生成 release `moji-desktop.exe`（11,130,368 bytes）。
+- 已完成 SQLite migration v2：FTS5 trigram 字段 `title/body/path/tags/ocr`、索引状态和可重建索引；中文子串、字段权重、格式/时间/来源/集合/标签/状态/收藏/最近使用组合过滤可用。
+- 已完成 Collection/Tag 多对多引用、收藏、最近使用和稳定搜索 IPC；查询结果含 Document ID、匹配片段和结构化 SourceLocator。
+- 已完成三栏资料库 UI：导航、搜索结果、工作区占位，覆盖加载、空、无结果和错误状态；UI 不以绝对路径作为主键且仅显示路径尾部。
+- 代表性性能测试：内存 bundled SQLite，1,000 条文档、30 次已索引查询、limit 50，AMD Ryzen 7 8845H / 8C16T / 27.8 GB / Windows 11，p95 53 ms。
 
 ## 当前边界与风险
 
@@ -31,8 +35,8 @@
 
 ## 明确未做
 
-全文检索、正文提取、OCR、标签/集合 UI、Office/PDF 业务 UI、编辑器写回、账号、云同步、正式版本库和真实 ZetaOffice runtime bridge 均未实现。不得把扫描器的 canonical path、SQLite 私有表或 `notify` 事件作为工期 3 的替代数据入口。
+正文提取、OCR、Office/PDF 业务 UI、编辑器写回、账号、云同步、正式版本库和真实 ZetaOffice runtime bridge 均未实现。页码、幻灯片和段落来源定位当前明确标记未实现。不得把扫描器的 canonical path、SQLite 私有表或 `notify` 事件作为后续模块的替代数据入口。
 
 ## 下一条命令
 
-工期 3 具备开始条件。先阅读 `docs/handoffs/phase-02.md`，以 `DocumentId`、`Document` 元数据和持久化 `ScanEvent` 为唯一数据入口；不得为了搜索再次遍历未授权文件系统或调用编辑器内部实现。
+工期 4 应以稳定的 `DocumentId`、`library_search` 查询结果和 `SourceLocator` 结构接入查看器；不得改变 FTS 字段、过滤参数、Document ID 或源文件不移动不复制不覆盖不变量。

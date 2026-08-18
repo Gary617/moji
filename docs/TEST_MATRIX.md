@@ -24,19 +24,26 @@
 | 浏览器真实 Office POC | 24 个 DOCX/PPTX/XLSX：打开 -> 修改 -> OOXML filter 另存 -> 关闭 -> 重开 -> marker/主部件/源哈希校验 | `pnpm dev` + `http://127.0.0.1:1420/editor-poc/index.html` 的 `Run 24-sample matrix` | PASS：24 total，24 PASS，0 DEGRADED，0 FAIL |
 | 真实产品方案 DOCX smoke | 真实文档打开 -> 追加正文 -> 另存 -> 关闭 -> 重开 | 同上页面的 `Run DOCX round-trip` | PASS；源文件 SHA-256 `c0da3a...ac7c4c` 保持不变 |
 | 源文件保护 | 每个浏览器样本比较源 SHA-256；目标使用独立虚拟路径 | 浏览器真实 Office POC | PASS（24 条 `sourcePreserved: true`，失败路径仍禁止覆盖） |
-| SQLite migration | 空库创建 4 张资料库表；重复 migration 保留已有 SourceRoot | `pnpm test:rust`（Rust PATH） | PASS：schema v1，幂等 |
+| SQLite migration | 空库创建工期 2 表和 v2 搜索/组织表；重复 migration 保留已有 SourceRoot | `pnpm test:rust`（Rust PATH） | PASS：schema v2，幂等 |
 | 授权边界 | 授权目录、同级路径穿越、`node_modules`、隐藏/系统/Junction 策略和格式识别 | `pnpm test:rust`（Rust PATH） | PASS：未授权路径结构化拒绝，默认排除原因可见 |
 | 增量扫描 | 临时目录的 DOCX/TXT 和单文件来源新增、未变重扫、修改、删除、重命名、重复导入、未支持格式和 `node_modules` | `pnpm test:rust`（Rust PATH） | PASS：Document ID 在重命名后保持，外部删除标记 missing，事件持久化 |
 | 元数据完整性 | canonical path、格式、大小、mtime、File ID（可用时）和 SHA-256 | `pnpm test:rust`（Rust PATH） | PASS：仅登记元数据，未写原文件 |
 | 扫描任务 | queued/running/paused/cancelled/failed/completed 转换、非法转换、重试、重开恢复、后台 worker 连接 | `pnpm test:rust`（Rust PATH） | PASS：非法状态返回 `INVALID_JOB_STATE`，重开后 running -> paused，worker 不误暂停现有任务 |
 | 文件监控适配 | notify create/rename 事件规范化并过滤未授权路径 | `pnpm test:rust`（Rust PATH） | PASS：授权根外事件被丢弃 |
 | 资料库 IPC | SourceRoot/ScanJob stable ID、扫描事件读取和既有成功信封序列化 | `pnpm test:rust`（Rust PATH） | PASS：结构化请求/响应 |
+| FTS 中文子串 | 标题、正文预留字段、路径、标签、OCR 预留字段的 trigram 索引和三字以下回退 | `pnpm test:rust`（Rust PATH） | PASS：中文“全文检索”命中并返回片段 |
+| 搜索权重/组合筛选 | 标题/路径/标签权重、格式/时间/来源/集合/标签/状态/收藏/最近使用 AND 过滤 | `pnpm test:rust`（Rust PATH） | PASS |
+| 虚拟组织 | Collection/Tag 多对多、收藏、最近使用，Document ID 稳定且原文件不动 | `pnpm test:rust`、`pnpm test` | PASS |
+| 增量索引完整性 | 元数据 upsert 后索引失败独立记录；重建可恢复 FTS | `pnpm test:rust` | PASS：Document 元数据不被索引错误破坏 |
+| 索引性能 | 1,000 条文档、30 次查询、limit 50，AMD Ryzen 7 8845H / 8C16T / 27.8 GB / Windows 11 | `cargo test ... indexed_query_p95... -- --nocapture` | PASS：p95 53 ms |
+| 三栏资料库 UI | 导航、结果、工作区；加载/空/无结果/错误和过滤器 | `pnpm test`、本地浏览器截图 | PASS：前端 10/10；桌面和 390px 小屏无重叠 |
 
 ## 当前自动化统计
 
-- 前端：3 个测试文件，7 个测试，通过 7，失败 0。
+- 前端：4 个测试文件，10 个测试，通过 10，失败 0。
 - Rust：19 个单元测试，通过 19，失败 0。
 - 本地资料库：临时目录涵盖新增、未变、修改、删除、重命名、重复导入、未支持格式、授权边界、持久化事件、暂停/恢复/取消/重试和数据库重开恢复；失败 0。权限不足/独占锁定使用相同 `PERMISSION_DENIED`/`HASH_READ_FAILED` 结构化路径，仍需在真实受限 ACL 和独占锁文件上做桌面手工演练。
 - Office POC：浏览器真实矩阵 24 个样本，24 PASS / 0 DEGRADED / 0 FAIL；Node runner 在无 runtime bridge 环境仍为 BLOCKED，这是两条不同证据链。
 - 已知非失败输出：MSVC 链接器以中文输出“正在创建库”，Rust 1.97.1 将该 stdout 显示为 `linker_messages` warning；产物和测试均成功。
+- 搜索性能测试记录硬件和样本规模：1,000 文档、30 次查询、limit 50，p95 53 ms；这是一项 bundled SQLite 内存数据库基准，不代表大规模磁盘库或正文提取后的最终性能。
 - 生产构建首次因全局 Node 24.13.0 / pnpm 11.22.0 不满足项目引擎约束而被正确拒绝；切换到 `PROJECT_CONTEXT.md` 要求的 Node 24.19.0 / pnpm 11.19.0 后原命令通过。
