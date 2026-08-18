@@ -21,7 +21,7 @@ pnpm generate:office-fixtures
 pnpm test:editor-poc
 ```
 
-The runner copies each fixture to a temporary directory before saving. It validates the output as an OOXML ZIP, closes it, reopens it in read-only mode, compares the preview marker, and verifies the source SHA-256 is unchanged. Results are written to `docs/editor-poc/results.json` and `docs/editor-poc/results.md`.
+The runner copies each fixture to a temporary directory before saving. It validates the output as an OOXML ZIP, closes it, reopens it in read-only mode, compares the preview marker, and verifies the source SHA-256 is unchanged. By default Node reports are written to `docs/editor-poc/results.node.json` and `docs/editor-poc/results.node.md`, so a missing Node bridge cannot overwrite the checked-in browser evidence in `results.json`/`results.md`. Use `--report-prefix=results` only when intentionally replacing the primary report.
 
 The runner exits `0` only for `PASS`; `DEGRADED` or `BLOCKED` sets child exit code `2` after writing both reports (pnpm may normalize the lifecycle exit to `1`) so CI cannot treat a blocked editor as a passing gate.
 

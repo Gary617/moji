@@ -21,6 +21,8 @@ function argValue(name: string): string | null {
   return value ? value.slice(prefix.length) : null;
 }
 
+const reportPrefix = (argValue("report-prefix") ?? "results.node").replace(/[^a-zA-Z0-9._-]/g, "_");
+
 async function hashFile(path: string): Promise<string> {
   return createHash("sha256").update(await readFile(path)).digest("hex");
 }
@@ -166,7 +168,9 @@ const summary = {
 };
 const conclusion = summary.fail === 0 ? (summary.degraded === 0 ? "PASS" : "DEGRADED") : summary.fail === summary.total ? "BLOCKED" : "DEGRADED";
 const report = { schemaVersion: 1, generatedAt: new Date().toISOString(), conclusion, runtimeHealth: health, runDirectory: "<temporary>", summary, samples: results };
-await writeFile(resolve(outputRoot, "results.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
+const resultsPath = resolve(outputRoot, `${reportPrefix}.json`);
+const markdownPath = resolve(outputRoot, `${reportPrefix}.md`);
+await writeFile(resultsPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 const markdown = [
   "# ZetaOffice Editor POC Results",
   "",
@@ -183,6 +187,6 @@ const markdown = [
   "",
   "A FAIL never writes the source fixture. The generated JSON retains source hashes and operation phase for audit.",
 ].join("\n");
-await writeFile(resolve(outputRoot, "results.md"), `${markdown}\n`, "utf8");
-console.log(JSON.stringify({ conclusion, summary, resultsPath: resolve(outputRoot, "results.json"), markdownPath: resolve(outputRoot, "results.md") }, null, 2));
+await writeFile(markdownPath, `${markdown}\n`, "utf8");
+console.log(JSON.stringify({ conclusion, summary, resultsPath, markdownPath }, null, 2));
 if (conclusion !== "PASS") process.exitCode = 2;

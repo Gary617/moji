@@ -8,5 +8,6 @@ src-tauri/icons/ios/
 src-tauri/icons/icon.icns
 _docx_render/
 *.log
+docs/editor-poc/results.node.*
 .DS_Store
 Thumbs.db

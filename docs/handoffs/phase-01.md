@@ -43,6 +43,7 @@
   - 浏览器真实 POC: 24 total，PASS 24，DEGRADED 0，FAIL 0；结论 `PASS`。
   - 每条结果均有 `reopened: true`、`markerPresent: true`、对应 OOXML 主部件、`sourcePreserved: true`、源/输出 SHA-256；报告在 `docs/editor-poc/results.json`。
   - Node runner 在没有注入 runtime bridge 时仍为 `ZETA_RUNTIME_UNAVAILABLE`/`BLOCKED`，这是预期的独立环境检查，不得用浏览器结果伪造 Node bridge。
+  - Node runner 默认写 `docs/editor-poc/results.node.{json,md}`，不会覆盖浏览器真实报告 `results.{json,md}`。
 - 已知问题:
   - 浏览器 harness 依赖官方 `zetaoffice_latest` CDN 和网络；正式集成必须锁定构建或自托管并记录 SHA-256。
   - 当前真实证据来自浏览器 worker，尚未接入 Tauri WebView2 自动化测试；不等同于离线桌面安装包兼容性。
