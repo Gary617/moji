@@ -13,7 +13,7 @@
 | Rust 单元 | IPC 失败信封 JSON 形状与 `details: null` | `pnpm test:rust` | PASS |
 | 冻结安装 | `pnpm-lock.yaml` 不漂移 | `pnpm install --frozen-lockfile` | PASS，Already up to date |
 | 前端生产构建 | TypeScript 类型检查 + Vite production | `pnpm build` | PASS，1799 modules transformed |
-| 桌面生产构建 | Tauri release executable，无安装包 | `$env:PATH = "C:\\Users\\Gary\\.cargo\\bin;" + $env:PATH; pnpm build:desktop` | PASS，release 11,072,000 bytes |
+| 桌面生产构建 | Tauri release executable，无安装包 | `$env:PATH = "C:\\Users\\Gary\\.cargo\\bin;" + $env:PATH; pnpm build:desktop` | PASS，release 11,130,368 bytes |
 | 桌面手工 | Windows 主窗口启动且布局无重叠 | `pnpm tauri dev` | PASS |
 | IPC 手工 | 前端显示 Rust 运行正常、应用版本 `0.1.0`、协议 `v1` | `pnpm tauri dev` | PASS；Rust 日志记录 `ipc_command_completed` success |
 | EditorAdapter 契约 | Mock open/edit/saveAs/close，禁止覆盖源文件 | `pnpm test` | PASS，3 个 editor 测试覆盖 |
@@ -26,16 +26,16 @@
 | 源文件保护 | 每个浏览器样本比较源 SHA-256；目标使用独立虚拟路径 | 浏览器真实 Office POC | PASS（24 条 `sourcePreserved: true`，失败路径仍禁止覆盖） |
 | SQLite migration | 空库创建 4 张资料库表；重复 migration 保留已有 SourceRoot | `pnpm test:rust`（Rust PATH） | PASS：schema v1，幂等 |
 | 授权边界 | 授权目录、同级路径穿越、`node_modules`、隐藏/系统/Junction 策略和格式识别 | `pnpm test:rust`（Rust PATH） | PASS：未授权路径结构化拒绝，默认排除原因可见 |
-| 增量扫描 | 临时目录的 DOCX/TXT 新增、未变重扫、修改、删除、重命名、重复导入、未支持格式和 `node_modules` | `pnpm test:rust`（Rust PATH） | PASS：Document ID 在重命名后保持，事件持久化 |
+| 增量扫描 | 临时目录的 DOCX/TXT 和单文件来源新增、未变重扫、修改、删除、重命名、重复导入、未支持格式和 `node_modules` | `pnpm test:rust`（Rust PATH） | PASS：Document ID 在重命名后保持，外部删除标记 missing，事件持久化 |
 | 元数据完整性 | canonical path、格式、大小、mtime、File ID（可用时）和 SHA-256 | `pnpm test:rust`（Rust PATH） | PASS：仅登记元数据，未写原文件 |
-| 扫描任务 | queued/running/paused/cancelled/failed/completed 转换、非法转换、重试、重开恢复 | `pnpm test:rust`（Rust PATH） | PASS：非法状态返回 `INVALID_JOB_STATE`，重开后 running -> paused |
+| 扫描任务 | queued/running/paused/cancelled/failed/completed 转换、非法转换、重试、重开恢复、后台 worker 连接 | `pnpm test:rust`（Rust PATH） | PASS：非法状态返回 `INVALID_JOB_STATE`，重开后 running -> paused，worker 不误暂停现有任务 |
 | 文件监控适配 | notify create/rename 事件规范化并过滤未授权路径 | `pnpm test:rust`（Rust PATH） | PASS：授权根外事件被丢弃 |
-| 资料库 IPC | SourceRoot/ScanJob stable ID 请求和既有成功信封序列化 | `pnpm test:rust`（Rust PATH） | PASS：结构化请求/响应 |
+| 资料库 IPC | SourceRoot/ScanJob stable ID、扫描事件读取和既有成功信封序列化 | `pnpm test:rust`（Rust PATH） | PASS：结构化请求/响应 |
 
 ## 当前自动化统计
 
 - 前端：3 个测试文件，7 个测试，通过 7，失败 0。
-- Rust：17 个单元测试，通过 17，失败 0。
+- Rust：19 个单元测试，通过 19，失败 0。
 - 本地资料库：临时目录涵盖新增、未变、修改、删除、重命名、重复导入、未支持格式、授权边界、持久化事件、暂停/恢复/取消/重试和数据库重开恢复；失败 0。权限不足/独占锁定使用相同 `PERMISSION_DENIED`/`HASH_READ_FAILED` 结构化路径，仍需在真实受限 ACL 和独占锁文件上做桌面手工演练。
 - Office POC：浏览器真实矩阵 24 个样本，24 PASS / 0 DEGRADED / 0 FAIL；Node runner 在无 runtime bridge 环境仍为 BLOCKED，这是两条不同证据链。
 - 已知非失败输出：MSVC 链接器以中文输出“正在创建库”，Rust 1.97.1 将该 stdout 显示为 `linker_messages` warning；产物和测试均成功。
