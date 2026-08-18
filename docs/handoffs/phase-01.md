@@ -1,7 +1,8 @@
 # Phase 01 Handoff
 
 - 阶段状态: pass（浏览器真实 POC）；Node runner 在无 runtime bridge 时仍为 blocked
-- 当前提交: 本次提交（完整 SHA 用 `git log -1 --format=%H` 核对）
+- 实现提交: `27498b5a67584bf8081ec4db6493ee8785d21ff5` (`feat: validate office editor integration`)
+- 交接文档提交: 本次文档提交（完整 SHA 用 `git log -1 --format=%H` 核对）
 - 目标: 在 Tauri/WebView2 边界验证 ZetaOffice/zetajs 对 DOCX、PPTX、XLSX 的真实 round-trip，并冻结可替换 EditorAdapter 契约。
 - 已完成:
   - `EditorAdapter` 六方法契约、稳定错误码、PASS/DEGRADED/FAIL 和只读回退模型。
