@@ -1,7 +1,7 @@
 # Phase 01 Handoff
 
 - 阶段状态: blocked
-- 当前提交: 见本分支最后一个 `feat: validate office editor integration` 提交（提交后用 `git log -1 --format=%H` 核对）
+- 当前提交: `c259d2c` (`feat: validate office editor integration`；完整 SHA 用 `git log -1 --format=%H` 核对)
 - 目标: 在 Tauri/WebView2 边界验证 ZetaOffice/zetajs 对 DOCX、PPTX、XLSX 的真实 round-trip，并冻结可替换 EditorAdapter 契约。
 - 已完成:
   - `EditorAdapter` 六方法契约、稳定错误码、PASS/DEGRADED/FAIL 和只读回退模型。
