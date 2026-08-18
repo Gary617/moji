@@ -18,7 +18,7 @@
 - 已实现新增、修改、删除、重命名的增量 reconciliation；重命名优先 File ID，必要时以唯一失效路径的哈希辅助定位。
 - 已实现持久化扫描任务状态与暂停、恢复、取消、失败重试；数据库重开时 `running` 任务恢复为 `paused`。`notify` watcher 已挂到 `LibraryService`，通过启动/轮询入口触发同一套增量扫描，并将事件限制在授权根目录。
 - 已通过 Rust 17/17、前端 7/7 和前端生产构建验证。
-- 已通过带 Rustup PATH 的 `pnpm build:desktop`，生成 release `moji-desktop.exe`（10,896,384 bytes）。
+- 已通过带 Rustup PATH 的 `pnpm build:desktop`，生成 release `moji-desktop.exe`（11,072,000 bytes）。
 
 ## 当前边界与风险
 

@@ -24,7 +24,7 @@
   - `pnpm test`（前端，Node engine warning；7/7）
   - `$env:PATH = "C:\Users\Gary\.cargo\bin;" + $env:PATH; cargo test --manifest-path src-tauri/Cargo.toml`（Rust 17/17）
   - `pnpm build`（TypeScript/Vite PASS）
-  - `$env:PATH = "C:\\Users\\Gary\\.cargo\\bin;" + $env:PATH; pnpm build:desktop`（PASS，release `moji-desktop.exe` 10,896,384 bytes）
+  - `$env:PATH = "C:\\Users\\Gary\\.cargo\\bin;" + $env:PATH; pnpm build:desktop`（PASS，release `moji-desktop.exe` 11,072,000 bytes）
   - `cargo fmt --manifest-path src-tauri/Cargo.toml --all`
 - 验证结果: PASS；Rust 临时目录覆盖授权边界、未支持格式、重复导入、新增/未变/修改/删除/重命名、事件持久化、独占锁文件、错误分类、任务状态和数据库重开恢复。
 - 已知问题:
