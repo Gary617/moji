@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, time::Duration};
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, from_str, to_string};
@@ -17,6 +17,9 @@ pub(crate) struct LibraryDatabase {
 impl LibraryDatabase {
     pub(crate) fn open(path: impl AsRef<Path>) -> LibraryResult<Self> {
         let connection = Connection::open(path).map_err(database_error)?;
+        connection
+            .busy_timeout(Duration::from_secs(5))
+            .map_err(database_error)?;
         let mut database = Self { connection };
         database.migrate()?;
         Ok(database)
@@ -24,6 +27,9 @@ impl LibraryDatabase {
 
     pub(crate) fn in_memory() -> LibraryResult<Self> {
         let connection = Connection::open_in_memory().map_err(database_error)?;
+        connection
+            .busy_timeout(Duration::from_secs(5))
+            .map_err(database_error)?;
         let mut database = Self { connection };
         database.migrate()?;
         Ok(database)
@@ -247,6 +253,27 @@ impl LibraryDatabase {
         self.job(id)?.ok_or_else(|| {
             LibraryError::new(LibraryErrorCode::ScanJobNotFound, "scan job was not found")
         })
+    }
+
+    pub(crate) fn update_running_progress(
+        &mut self,
+        id: &ScanJobId,
+        scanned_count: u64,
+        changed_count: u64,
+        failed_count: u64,
+        retry_count: u32,
+    ) -> LibraryResult<Option<ScanJobRecord>> {
+        let changed = self
+            .connection
+            .execute(
+                "UPDATE scan_jobs SET scanned_count = ?2, changed_count = ?3, failed_count = ?4, retry_count = ?5, updated_at_ms = ?6 WHERE id = ?1 AND state = 'running'",
+                params![id.0, sqlite_int(scanned_count), sqlite_int(changed_count), sqlite_int(failed_count), i64::from(retry_count), now_unix_ms()],
+            )
+            .map_err(database_error)?;
+        if changed == 0 {
+            return Ok(None);
+        }
+        self.job(id)
     }
 
     pub(crate) fn documents_for_source(

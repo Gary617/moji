@@ -6,8 +6,8 @@ use tauri::State;
 
 use crate::library::{
     model::{
-        LibraryError, LibraryErrorCode, LibraryResult, ScanJobId, ScanJobRecord, ScanSummary,
-        SourceRegistration, SourceRootId, WatchPollResult, WatchStatus,
+        LibraryError, LibraryErrorCode, LibraryResult, ScanEvent, ScanJobId, ScanJobRecord,
+        ScanSummary, SourceRegistration, SourceRootId, WatchPollResult, WatchStatus,
     },
     queue::ScanQueue,
     scanner::LibraryService,
@@ -18,6 +18,7 @@ use super::response::{IpcError, IpcResponse};
 pub(crate) struct LibraryState {
     service: Mutex<Option<LibraryService>>,
     initialization_error: Mutex<Option<LibraryError>>,
+    database_path: Mutex<Option<PathBuf>>,
 }
 
 impl LibraryState {
@@ -25,10 +26,14 @@ impl LibraryState {
         Self {
             service: Mutex::new(None),
             initialization_error: Mutex::new(None),
+            database_path: Mutex::new(None),
         }
     }
 
     pub(crate) fn initialize(&self, database_path: PathBuf) {
+        if let Ok(mut slot) = self.database_path.lock() {
+            *slot = Some(database_path.clone());
+        }
         match LibraryService::open(database_path) {
             Ok(service) => {
                 if let Ok(mut slot) = self.service.lock() {
@@ -41,6 +46,26 @@ impl LibraryState {
                 }
             }
         }
+    }
+
+    fn database_path(&self) -> LibraryResult<PathBuf> {
+        self.database_path
+            .lock()
+            .map_err(|_| {
+                LibraryError::new(
+                    LibraryErrorCode::LibraryUnavailable,
+                    "library state is unavailable",
+                )
+                .retryable()
+            })?
+            .clone()
+            .ok_or_else(|| {
+                LibraryError::new(
+                    LibraryErrorCode::LibraryUnavailable,
+                    "library database is not ready",
+                )
+                .retryable()
+            })
     }
 }
 
@@ -80,7 +105,11 @@ pub(crate) fn library_start_scan(
     state: State<'_, LibraryState>,
 ) -> IpcResponse<ScanSummary> {
     let source_id = SourceRootId(request.source_root_id);
-    with_service(&state, |service| service.scan_source(&source_id))
+    let response = with_service(&state, |service| service.enqueue_scan(&source_id));
+    schedule_response(&state, response, |job| ScanSummary {
+        job,
+        events: Vec::new(),
+    })
 }
 
 #[tauri::command]
@@ -97,6 +126,20 @@ pub(crate) fn library_scan_status(
 }
 
 #[tauri::command]
+pub(crate) fn library_scan_events(
+    request: ScanJobRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<Vec<ScanEvent>> {
+    let job_id = ScanJobId(request.scan_job_id);
+    with_service(&state, |service| {
+        service.database.job(&job_id)?.ok_or_else(|| {
+            LibraryError::new(LibraryErrorCode::ScanJobNotFound, "scan job was not found")
+        })?;
+        service.database.events_for_job(&job_id)
+    })
+}
+
+#[tauri::command]
 pub(crate) fn library_pause_scan(
     request: ScanJobRequest,
     state: State<'_, LibraryState>,
@@ -109,7 +152,9 @@ pub(crate) fn library_resume_scan(
     request: ScanJobRequest,
     state: State<'_, LibraryState>,
 ) -> IpcResponse<ScanJobRecord> {
-    transition_job(&state, request, |queue, id| queue.start(id))
+    let job_id = ScanJobId(request.scan_job_id);
+    let response = with_service(&state, |service| service.resume_scan(&job_id));
+    schedule_response(&state, response, |job| job)
 }
 
 #[tauri::command]
@@ -125,7 +170,9 @@ pub(crate) fn library_retry_scan(
     request: ScanJobRequest,
     state: State<'_, LibraryState>,
 ) -> IpcResponse<ScanJobRecord> {
-    transition_job(&state, request, |queue, id| queue.retry(id))
+    let job_id = ScanJobId(request.scan_job_id);
+    let response = with_service(&state, |service| service.retry_scan(&job_id));
+    schedule_response(&state, response, |job| job)
 }
 
 #[tauri::command]
@@ -143,7 +190,67 @@ pub(crate) fn library_poll_watch(
     state: State<'_, LibraryState>,
 ) -> IpcResponse<WatchPollResult> {
     let source_id = SourceRootId(request.source_root_id);
-    with_service(&state, |service| service.poll_watch(&source_id))
+    let response = with_service(&state, |service| service.poll_watch_changes(&source_id));
+    match response {
+        IpcResponse::Success { data: changed } => {
+            if !changed {
+                return IpcResponse::success(WatchPollResult {
+                    source_root_id: source_id,
+                    changed: false,
+                    scan: None,
+                });
+            }
+            let queued = with_service(&state, |service| service.enqueue_scan(&source_id));
+            match schedule_response(&state, queued, |job| ScanSummary {
+                job,
+                events: Vec::new(),
+            }) {
+                IpcResponse::Success { data: scan } => IpcResponse::success(WatchPollResult {
+                    source_root_id: source_id,
+                    changed: true,
+                    scan: Some(scan),
+                }),
+                IpcResponse::Error { error } => IpcResponse::error(error),
+            }
+        }
+        IpcResponse::Error { error } => IpcResponse::error(error),
+    }
+}
+
+fn schedule_response<T, F>(
+    state: &State<'_, LibraryState>,
+    response: IpcResponse<ScanJobRecord>,
+    map: F,
+) -> IpcResponse<T>
+where
+    F: FnOnce(ScanJobRecord) -> T,
+{
+    match response {
+        IpcResponse::Success { data: job } => match state.database_path() {
+            Ok(path) => {
+                spawn_scan_worker(path, job.id.clone());
+                IpcResponse::success(map(job))
+            }
+            Err(error) => IpcResponse::error(library_ipc_error(error)),
+        },
+        IpcResponse::Error { error } => IpcResponse::Error { error },
+    }
+}
+
+fn spawn_scan_worker(database_path: PathBuf, scan_job_id: ScanJobId) {
+    let _ = std::thread::Builder::new()
+        .name("moji-library-scan".to_owned())
+        .spawn(move || {
+            let result = LibraryService::open_worker(database_path)
+                .and_then(|mut service| service.run_scan_job(&scan_job_id));
+            if let Err(error) = result {
+                tracing::warn!(
+                    event = "library_scan_worker_failed",
+                    scan_job_id = %scan_job_id.0,
+                    code = %error.code,
+                );
+            }
+        });
 }
 
 fn transition_job<F>(

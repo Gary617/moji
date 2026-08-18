@@ -30,6 +30,7 @@ pub fn run() {
             ipc::library::library_register_source,
             ipc::library::library_start_scan,
             ipc::library::library_scan_status,
+            ipc::library::library_scan_events,
             ipc::library::library_pause_scan,
             ipc::library::library_resume_scan,
             ipc::library::library_cancel_scan,

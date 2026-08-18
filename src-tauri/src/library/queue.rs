@@ -25,8 +25,18 @@ impl<'a> ScanQueue<'a> {
     pub(crate) fn start(&mut self, job_id: &ScanJobId) -> LibraryResult<ScanJobRecord> {
         self.transition(
             job_id,
-            &[ScanJobState::Queued, ScanJobState::Paused],
+            &[ScanJobState::Queued],
             ScanJobState::Running,
+            false,
+            None,
+        )
+    }
+
+    pub(crate) fn resume(&mut self, job_id: &ScanJobId) -> LibraryResult<ScanJobRecord> {
+        self.transition(
+            job_id,
+            &[ScanJobState::Paused],
+            ScanJobState::Queued,
             false,
             None,
         )
@@ -35,7 +45,7 @@ impl<'a> ScanQueue<'a> {
     pub(crate) fn pause(&mut self, job_id: &ScanJobId) -> LibraryResult<ScanJobRecord> {
         self.transition(
             job_id,
-            &[ScanJobState::Running],
+            &[ScanJobState::Queued, ScanJobState::Running],
             ScanJobState::Paused,
             false,
             None,
@@ -127,11 +137,20 @@ mod tests {
         let mut queue = ScanQueue::new(&mut database);
         let queued = queue.enqueue(&source.source.id).unwrap();
         assert_eq!(queued.state, ScanJobState::Queued);
+        assert_eq!(queue.pause(&queued.id).unwrap().state, ScanJobState::Paused);
+        assert_eq!(
+            queue.resume(&queued.id).unwrap().state,
+            ScanJobState::Queued
+        );
         assert_eq!(
             queue.start(&queued.id).unwrap().state,
             ScanJobState::Running
         );
         assert_eq!(queue.pause(&queued.id).unwrap().state, ScanJobState::Paused);
+        assert_eq!(
+            queue.resume(&queued.id).unwrap().state,
+            ScanJobState::Queued
+        );
         assert_eq!(
             queue.start(&queued.id).unwrap().state,
             ScanJobState::Running
@@ -154,8 +173,8 @@ mod tests {
         let mut queue = ScanQueue::new(&mut database);
         let queued = queue.enqueue(&source.source.id).unwrap();
         let error = queue
-            .pause(&queued.id)
-            .expect_err("queued job cannot pause");
+            .resume(&queued.id)
+            .expect_err("queued job cannot resume");
         assert_eq!(error.code, "INVALID_JOB_STATE");
     }
 }

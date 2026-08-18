@@ -13,9 +13,8 @@ use super::{
     database::LibraryDatabase,
     model::{
         DocumentId, DocumentRecord, DocumentStatus, LibraryError, LibraryErrorCode, LibraryResult,
-        ScanEvent, ScanEventKind, ScanJobId, ScanJobState, ScanSummary, SourceKind,
-        SourceRegistration, SourceRootId, WatchPollResult, WatchStatus, new_identifier,
-        now_unix_ms,
+        ScanEvent, ScanEventKind, ScanJobId, ScanJobRecord, ScanJobState, ScanSummary, SourceKind,
+        SourceRegistration, SourceRootId, WatchStatus, new_identifier, now_unix_ms,
     },
     policy::{
         AuthorizedSource, authorize_candidate, authorize_source, canonical_path_string,
@@ -31,8 +30,18 @@ pub(crate) struct LibraryService {
 
 impl LibraryService {
     pub(crate) fn open(path: impl AsRef<Path>) -> LibraryResult<Self> {
+        Self::open_with_recovery(path, true)
+    }
+
+    pub(crate) fn open_worker(path: impl AsRef<Path>) -> LibraryResult<Self> {
+        Self::open_with_recovery(path, false)
+    }
+
+    fn open_with_recovery(path: impl AsRef<Path>, recover_jobs: bool) -> LibraryResult<Self> {
         let mut database = LibraryDatabase::open(path)?;
-        database.recover_running_jobs()?;
+        if recover_jobs {
+            database.recover_running_jobs()?;
+        }
         Ok(Self {
             database,
             watchers: HashMap::new(),
@@ -66,22 +75,55 @@ impl LibraryService {
         )
     }
 
+    pub(crate) fn enqueue_scan(
+        &mut self,
+        source_root_id: &SourceRootId,
+    ) -> LibraryResult<ScanJobRecord> {
+        let mut queue = super::queue::ScanQueue::new(&mut self.database);
+        queue.enqueue(source_root_id)
+    }
+
+    pub(crate) fn resume_scan(&mut self, scan_job_id: &ScanJobId) -> LibraryResult<ScanJobRecord> {
+        let mut queue = super::queue::ScanQueue::new(&mut self.database);
+        queue.resume(scan_job_id)
+    }
+
+    pub(crate) fn retry_scan(&mut self, scan_job_id: &ScanJobId) -> LibraryResult<ScanJobRecord> {
+        let mut queue = super::queue::ScanQueue::new(&mut self.database);
+        queue.retry(scan_job_id)
+    }
+
     pub(crate) fn scan_source(
         &mut self,
         source_root_id: &SourceRootId,
     ) -> LibraryResult<ScanSummary> {
-        let source_record = self.database.source_by_id(source_root_id)?.ok_or_else(|| {
-            LibraryError::new(
-                LibraryErrorCode::SourceNotFound,
-                "source root was not found",
-            )
-        })?;
-        let mut job = self.database.create_scan_job(source_root_id)?;
-        job = self
+        let job = self.enqueue_scan(source_root_id)?;
+        self.run_scan_job(&job.id)
+    }
+
+    pub(crate) fn run_scan_job(&mut self, scan_job_id: &ScanJobId) -> LibraryResult<ScanSummary> {
+        let mut job = {
+            let mut queue = super::queue::ScanQueue::new(&mut self.database);
+            queue.start(scan_job_id)?
+        };
+        let source_record = self
             .database
-            .update_job(&job.id, ScanJobState::Running, 0, 0, 0, 0, None)?;
+            .source_by_id(&job.source_root_id)?
+            .ok_or_else(|| {
+                LibraryError::new(
+                    LibraryErrorCode::SourceNotFound,
+                    "source root was not found",
+                )
+            })?;
+        let known_documents = self.database.documents_for_source(&job.source_root_id)?;
         let source = match authorize_source(&source_record.canonical_path) {
             Ok(source) => source,
+            Err(error)
+                if error.code_is(LibraryErrorCode::SourceNotFound)
+                    && source_is_gone(&source_record.canonical_path) =>
+            {
+                return self.complete_missing_source(job, known_documents);
+            }
             Err(error) => {
                 let _ = self.database.update_job(
                     &job.id,
@@ -89,13 +131,12 @@ impl LibraryService {
                     0,
                     0,
                     1,
-                    0,
+                    job.retry_count,
                     Some(&error.code),
                 );
                 return Err(error);
             }
         };
-        let known_documents = self.database.documents_for_source(source_root_id)?;
         let known_by_path = known_documents
             .iter()
             .map(|document| (document.canonical_path.clone(), document.clone()))
@@ -104,7 +145,6 @@ impl LibraryService {
         let mut pre_events = Vec::new();
         let mut scanned_count = 0u64;
         let mut changed_count = 0u64;
-        let mut failed_count = 0u64;
 
         let files = match collect_files(&source, &mut pre_events, &job.id) {
             Ok(files) => files,
@@ -115,7 +155,7 @@ impl LibraryService {
                     0,
                     0,
                     1,
-                    0,
+                    job.retry_count,
                     Some(&error.code),
                 );
                 return Err(error);
@@ -123,22 +163,28 @@ impl LibraryService {
         };
         let mut events = Vec::new();
         for event in pre_events {
-            if event.id < 0 {
-                events.push(self.database.add_event(
-                    &job.id,
-                    event.document_id.as_ref(),
-                    event.kind,
-                    &event.details,
-                )?);
-            } else {
-                events.push(event);
-            }
+            events.push(self.database.add_event(
+                &job.id,
+                event.document_id.as_ref(),
+                event.kind,
+                &event.details,
+            )?);
         }
+        let mut failed_count = events
+            .iter()
+            .filter(|event| event.kind == ScanEventKind::Error)
+            .count() as u64;
         for path in files {
+            if let Some(current) = self.interrupted_job(&job.id)? {
+                return Ok(ScanSummary {
+                    job: current,
+                    events,
+                });
+            }
             let canonical = canonical_path_string(&path);
             seen_paths.insert(canonical.clone());
             scanned_count += 1;
-            match self.reconcile_file(&source, source_root_id, &job.id, &path) {
+            match self.reconcile_file(&source, &job.source_root_id, &job.id, &path) {
                 Ok(Some((event, changed))) => {
                     if changed {
                         changed_count += 1;
@@ -149,27 +195,45 @@ impl LibraryService {
                 Err(error) => {
                     failed_count += 1;
                     if let Some(existing) = known_by_path.get(&canonical) {
-                        let event = self.database.add_event(
+                        events.push(self.database.add_event(
                             &job.id,
                             Some(&existing.id),
                             ScanEventKind::Error,
                             &json!({ "displayName": existing.display_name, "code": error.code, "message": error.message }),
-                        )?;
-                        events.push(event);
+                        )?);
                     } else {
-                        let event = self.database.add_event(
+                        events.push(self.database.add_event(
                             &job.id,
                             None,
                             ScanEventKind::Error,
                             &json!({ "displayName": path.file_name().and_then(|name| name.to_str()).unwrap_or("file"), "code": error.code, "message": error.message }),
-                        )?;
-                        events.push(event);
+                        )?);
                     }
                 }
             }
+            let Some(updated) = self.database.update_running_progress(
+                &job.id,
+                scanned_count,
+                changed_count,
+                failed_count,
+                job.retry_count,
+            )?
+            else {
+                return Ok(ScanSummary {
+                    job: self.current_job(&job.id)?,
+                    events,
+                });
+            };
+            job = updated;
         }
 
         for document in known_documents {
+            if let Some(current) = self.interrupted_job(&job.id)? {
+                return Ok(ScanSummary {
+                    job: current,
+                    events,
+                });
+            }
             if document.status != DocumentStatus::Missing
                 && !seen_paths.contains(&document.canonical_path)
             {
@@ -181,9 +245,29 @@ impl LibraryService {
                     &json!({ "displayName": document.display_name }),
                 )?);
                 changed_count += 1;
+                let Some(updated) = self.database.update_running_progress(
+                    &job.id,
+                    scanned_count,
+                    changed_count,
+                    failed_count,
+                    job.retry_count,
+                )?
+                else {
+                    return Ok(ScanSummary {
+                        job: self.current_job(&job.id)?,
+                        events,
+                    });
+                };
+                job = updated;
             }
         }
 
+        if let Some(current) = self.interrupted_job(&job.id)? {
+            return Ok(ScanSummary {
+                job: current,
+                events,
+            });
+        }
         let final_state = if failed_count > 0 {
             ScanJobState::Failed
         } else {
@@ -195,8 +279,51 @@ impl LibraryService {
             scanned_count,
             changed_count,
             failed_count,
-            0,
+            job.retry_count,
             (failed_count > 0).then_some("SCAN_FILE_FAILED"),
+        )?;
+        Ok(ScanSummary { job, events })
+    }
+
+    fn current_job(&self, scan_job_id: &ScanJobId) -> LibraryResult<ScanJobRecord> {
+        self.database.job(scan_job_id)?.ok_or_else(|| {
+            LibraryError::new(LibraryErrorCode::ScanJobNotFound, "scan job was not found")
+        })
+    }
+
+    fn interrupted_job(&self, scan_job_id: &ScanJobId) -> LibraryResult<Option<ScanJobRecord>> {
+        let job = self.current_job(scan_job_id)?;
+        Ok((job.state != ScanJobState::Running).then_some(job))
+    }
+
+    fn complete_missing_source(
+        &mut self,
+        mut job: ScanJobRecord,
+        known_documents: Vec<DocumentRecord>,
+    ) -> LibraryResult<ScanSummary> {
+        let mut events = Vec::new();
+        let mut changed_count = 0;
+        for document in known_documents {
+            if document.status == DocumentStatus::Missing {
+                continue;
+            }
+            self.database.mark_missing(&document.id, &job.id)?;
+            events.push(self.database.add_event(
+                &job.id,
+                Some(&document.id),
+                ScanEventKind::Missing,
+                &json!({ "displayName": document.display_name }),
+            )?);
+            changed_count += 1;
+        }
+        job = self.database.update_job(
+            &job.id,
+            ScanJobState::Completed,
+            0,
+            changed_count,
+            0,
+            job.retry_count,
+            None,
         )?;
         Ok(ScanSummary { job, events })
     }
@@ -220,11 +347,11 @@ impl LibraryService {
         })
     }
 
-    pub(crate) fn poll_watch(
+    pub(crate) fn poll_watch_changes(
         &mut self,
         source_root_id: &SourceRootId,
-    ) -> LibraryResult<WatchPollResult> {
-        let changed = {
+    ) -> LibraryResult<bool> {
+        {
             let watcher = self.watchers.get(source_root_id).ok_or_else(|| {
                 LibraryError::new(
                     LibraryErrorCode::WatcherUnavailable,
@@ -232,18 +359,8 @@ impl LibraryService {
                 )
                 .retryable()
             })?;
-            !watcher.drain().is_empty()
-        };
-        let scan = if changed {
-            Some(self.scan_source(source_root_id)?)
-        } else {
-            None
-        };
-        Ok(WatchPollResult {
-            source_root_id: source_root_id.clone(),
-            changed,
-            scan,
-        })
+            Ok(!watcher.drain().is_empty())
+        }
     }
 
     fn reconcile_file(
@@ -356,6 +473,13 @@ fn collect_files(
     }
     walk_directory(&source.canonical_path, &mut files, events, scan_job_id)?;
     Ok(files)
+}
+
+fn source_is_gone(path: &str) -> bool {
+    matches!(
+        fs::symlink_metadata(path),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound
+    )
 }
 
 fn walk_directory(
@@ -599,6 +723,67 @@ mod tests {
         assert!(first.created);
         assert!(!second.created);
         assert_eq!(first.source.id, second.source.id);
+    }
+
+    #[test]
+    fn scans_single_file_and_marks_external_deletion_missing() {
+        let tree = TempTree::new();
+        let file = tree.0.join("single.txt");
+        fs::write(&file, "single file").unwrap();
+        let mut service = LibraryService::in_memory().unwrap();
+        let source = service.register_source(&file).unwrap();
+        let first = service.scan_source(&source.source.id).unwrap();
+        assert_eq!(
+            first.job.state,
+            crate::library::model::ScanJobState::Completed
+        );
+        assert_eq!(
+            service
+                .database
+                .documents_for_source(&source.source.id)
+                .unwrap()
+                .len(),
+            1
+        );
+        fs::remove_file(&file).unwrap();
+        let second = service.scan_source(&source.source.id).unwrap();
+        assert_eq!(
+            second.job.state,
+            crate::library::model::ScanJobState::Completed
+        );
+        assert!(
+            second
+                .events
+                .iter()
+                .any(|event| event.kind == ScanEventKind::Missing)
+        );
+        assert_eq!(
+            service
+                .database
+                .documents_for_source(&source.source.id)
+                .unwrap()[0]
+                .status,
+            DocumentStatus::Missing
+        );
+    }
+
+    #[test]
+    fn worker_open_does_not_pause_jobs_owned_by_the_current_process() {
+        let tree = TempTree::new();
+        let database_path = tree.0.join("library.sqlite3");
+        let job_id = {
+            let mut service = LibraryService::open(&database_path).unwrap();
+            let source = service.register_source(&tree.0).unwrap();
+            let mut queue = crate::library::queue::ScanQueue::new(&mut service.database);
+            let job = queue.enqueue(&source.source.id).unwrap();
+            queue.start(&job.id).unwrap();
+            job.id
+        };
+        let worker = LibraryService::open_worker(&database_path).unwrap();
+        assert_eq!(
+            worker.database.job(&job_id).unwrap().unwrap().state,
+            crate::library::model::ScanJobState::Running
+        );
     }
 
     #[test]
