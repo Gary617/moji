@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+src-tauri/target/
+src-tauri/gen/
+src-tauri/icons/android/
+src-tauri/icons/ios/
+src-tauri/icons/icon.icns
+_docx_render/
+*.log
+.DS_Store
+Thumbs.db
