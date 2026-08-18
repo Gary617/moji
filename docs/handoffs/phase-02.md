@@ -8,7 +8,7 @@
   - `SourceRootId`、`DocumentId`、`ScanJobId` 稳定标识及结构化 Rust/Tauri IPC。
   - 目录/单文件 canonical path 授权；隐藏、系统、回收站、`node_modules`、符号链接/Junction/reparse point 默认跳过并记录原因。
   - 元数据扫描：格式、大小、mtime、File ID（可用时）、SHA-256；新增、修改、删除、重命名、重复导入和外部删除 reconciliation。
-  - ScanJob 状态机、暂停/恢复/取消/失败重试和数据库重开 `running -> paused` 恢复；notify watcher 只输出授权范围内事件。
+  - ScanJob 状态机、暂停/恢复/取消/失败重试和数据库重开 `running -> paused` 恢复；notify watcher 已挂到 `LibraryService`，启动/轮询时只输出授权范围内事件并复用扫描 reconciliation。
 - 改动文件:
   - `src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`
   - `src-tauri/src/library/{mod.rs,model.rs,database.rs,policy.rs,scanner.rs,queue.rs,watcher.rs}`
@@ -16,7 +16,7 @@
   - `docs/PROJECT_CONTEXT.md`、`docs/STATUS.md`、`docs/DECISIONS.md`、`docs/TEST_MATRIX.md`
 - 稳定接口/表结构:
   - `EditorAdapter` 仍是编辑器唯一契约；资料库不得调用 ZetaOffice/UNO。
-  - Rust `LibraryService` 提供来源注册和扫描 reconciliation；Tauri 命令为 `library_register_source`、`library_start_scan`、`library_scan_status`、`library_pause_scan`、`library_resume_scan`、`library_cancel_scan`、`library_retry_scan`。
+  - Rust `LibraryService` 提供来源注册、扫描 reconciliation 和 watcher 生命周期；Tauri 命令为 `library_register_source`、`library_start_scan`、`library_scan_status`、`library_pause_scan`、`library_resume_scan`、`library_cancel_scan`、`library_retry_scan`、`library_start_watch`、`library_poll_watch`。
   - `DocumentRecord` 保存 `DocumentId`、`SourceRootId`、canonical path、format、size、mtime、File ID、SHA-256、status 和 `contentState: pending`；正文尚未提取。
   - `ScanEvent.kind` 为 `discovered|updated|renamed|missing|skipped|error`；任务状态为 `queued|running|paused|cancelled|failed|completed`。
 - 验证命令:
@@ -27,7 +27,7 @@
   - `cargo fmt --manifest-path src-tauri/Cargo.toml --all`
 - 验证结果: PASS；Rust 临时目录覆盖授权边界、未支持格式、重复导入、新增/未变/修改/删除/重命名、事件持久化、独占锁文件、错误分类、任务状态和数据库重开恢复。
 - 已知问题:
-  - `library_start_scan` 当前在 IPC 调用内同步完成一次扫描；watcher 只提供事件标准化，尚未连接常驻后台调度/背压。
+  - `library_start_scan` 和 watcher 轮询当前在 IPC 调用内同步完成一次扫描；尚未连接常驻后台调度/背压或产品 UI。
   - 全局 Node `24.13.0` 低于要求 `>=24.15.0 <25`，前端命令有 engine warning；Rustup bin 不在默认 PATH。
   - 真实受限 ACL、超大目录性能和跨卷 File ID 重定位尚未做桌面手工演练。
 - 明确未做事项（下一阶段不要误做）:

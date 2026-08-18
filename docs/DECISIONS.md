@@ -107,4 +107,4 @@
 - 状态：已接受
 - 决策：`ScanJob` 持久化 `queued|running|paused|cancelled|failed|completed`、进度、错误和重试次数。应用重开时所有 `running` 任务归一为 `paused`，需要显式恢复；`notify` 事件只在授权过滤后触发增量扫描请求。
 - 理由：进程退出不能让前端认为任务仍在运行；明确的状态转换让暂停、取消和失败重试可测试。
-- 边界：本期提供 `notify` watcher adapter，不启动产品级常驻调度循环；后续队列执行器必须复用同一状态机。
+- 边界：本期提供 `notify` watcher 的启动和轮询入口，不启动产品级常驻调度循环；后续队列执行器必须复用同一状态机。

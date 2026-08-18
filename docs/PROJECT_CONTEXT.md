@@ -129,6 +129,8 @@ library_pause_scan({ scanJobId }) -> IpcResponse<ScanJobRecord>
 library_resume_scan({ scanJobId }) -> IpcResponse<ScanJobRecord>
 library_cancel_scan({ scanJobId }) -> IpcResponse<ScanJobRecord>
 library_retry_scan({ scanJobId }) -> IpcResponse<ScanJobRecord>
+library_start_watch({ sourceRootId }) -> IpcResponse<WatchStatus>
+library_poll_watch({ sourceRootId }) -> IpcResponse<WatchPollResult>
 ```
 
 ## 本地资料库契约（工期 2）
@@ -149,7 +151,7 @@ scan_events(id, scan_job_id, document_id?, kind, occurred_at_ms, details_json)
 - 每个可登记文件保存大小、修改时间、`file-id` 的 Windows File ID（可用时）和 SHA-256。重命名先以 File ID 追踪；File ID 不可用时，仅在唯一失效路径匹配 SHA-256 时作为辅助重定位，避免合并同内容的真实重复文件。
 - `ScanEvent.kind` 为 `discovered|updated|renamed|missing|skipped|error`。运行中的任务在重新打开数据库时转为 `paused`；任务支持 `queued|running|paused|cancelled|failed|completed` 和重试计数。
 - 错误使用稳定机器码，例如 `UNAUTHORIZED_PATH`、`EXCLUDED_PATH`、`PERMISSION_DENIED`、`HASH_READ_FAILED`、`INVALID_JOB_STATE`。错误消息和事件详情不包含绝对路径或文档正文。
-- `notify` 只被封装在 `library/watcher.rs`；监听事件必须先过滤到授权根目录，再请求增量扫描。下一阶段不得直接使用 `notify` 或 SQLite 私有表。
+- `notify` 只被封装在 `library/watcher.rs`；监听事件必须先过滤到授权根目录，再由 `poll_watch` 请求同一套增量扫描。当前提供 watcher 生命周期和轮询入口，未启动产品级常驻后台调度。下一阶段不得直接使用 `notify` 或 SQLite 私有表。
 
 ## EditorAdapter 契约（工期 1）
 

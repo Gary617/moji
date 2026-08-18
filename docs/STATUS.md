@@ -16,7 +16,7 @@
 - 已建立 SQLite migration `v1` 和 `SourceRoot`、`Document`、`ScanJob`、`ScanEvent` 最小模型；重复 migration 不删除已有资料。
 - 已实现用户授权目录/单文件注册、canonical path 校验、隐藏/系统/回收站/`node_modules`/Junction 默认排除，以及文件格式、大小、mtime、Windows File ID 和 SHA-256 元数据登记。
 - 已实现新增、修改、删除、重命名的增量 reconciliation；重命名优先 File ID，必要时以唯一失效路径的哈希辅助定位。
-- 已实现持久化扫描任务状态与暂停、恢复、取消、失败重试；数据库重开时 `running` 任务恢复为 `paused`。`notify` 监听适配器已将事件限制在授权根目录。
+- 已实现持久化扫描任务状态与暂停、恢复、取消、失败重试；数据库重开时 `running` 任务恢复为 `paused`。`notify` watcher 已挂到 `LibraryService`，通过启动/轮询入口触发同一套增量扫描，并将事件限制在授权根目录。
 - 已通过 Rust 17/17、前端 7/7 和前端生产构建验证。
 - 已通过带 Rustup PATH 的 `pnpm build:desktop`，生成 release `moji-desktop.exe`（10,896,384 bytes）。
 
@@ -26,7 +26,7 @@
 - 浏览器 POC 使用官方 `zetaoffice_latest` CDN，版本随 CDN 更新且依赖网络；正式集成前需要锁定构建或自托管并记录 SHA-256。
 - 真实证据来自浏览器 worker，尚未接入 Tauri WebView2 自动化测试；浏览器 PASS 不等同于离线桌面安装包或任意真实用户文件兼容。
 - 夹具是结构化代表性输入，批注、图表和复杂排版还需后续视觉核对。
-- 当前 `library_start_scan` 在 Tauri 命令内同步完成一次扫描；监控事件已标准化但尚未连接到常驻后台调度循环或产品 UI。大量目录的调度/背压属于后续优化，不能影响当前元数据正确性。
+- 当前 `library_start_scan` 和 watcher 轮询在 Tauri 命令内同步完成一次扫描；尚未连接产品级常驻后台调度循环或 UI。大量目录的调度/背压属于后续优化，不能影响当前元数据正确性。
 - 本机全局 Node 为 `24.13.0`，低于仓库要求；本次前端测试与构建通过但输出 engine warning。Rust 命令仍需显式将 `C:\Users\Gary\.cargo\bin` 加入 `PATH`。
 
 ## 明确未做
