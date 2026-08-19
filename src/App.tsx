@@ -56,6 +56,7 @@ import {
   type TagRecord,
 } from "./ipc/library";
 import type { IpcError } from "./ipc/types";
+import { chatWithAiStream, previewAiContext, type AiPermission, type AiStreamEvent, type ContextPreview } from "./ipc/ai";
 import { adapterRegistry } from "./document/registry";
 import { PdfViewer } from "./document/PdfViewer";
 
@@ -140,6 +141,11 @@ export default function App() {
   const [collectionChoice, setCollectionChoice] = useState("");
   const [tagChoice, setTagChoice] = useState("");
   const [isRebuilding, setIsRebuilding] = useState(false);
+  const [aiPermission, setAiPermission] = useState<AiPermission>("suggest");
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiPreview, setAiPreview] = useState<ContextPreview | null>(null);
+  const [aiEvents, setAiEvents] = useState<AiStreamEvent[]>([]);
+  const [aiBusy, setAiBusy] = useState(false);
 
   const refreshHealth = useCallback(async () => {
     setHealth({ kind: "checking" });
@@ -304,6 +310,24 @@ export default function App() {
     if (response.status === "success") void refreshResults();
   };
 
+  const previewAi = async () => {
+    if (!selected || !aiPrompt.trim()) return;
+    const response = await previewAiContext({ prompt: aiPrompt.trim(), permission: aiPermission, documentIds: [selected.document.id] });
+    if (response.status === "success") setAiPreview(response.data);
+  };
+
+  const runAi = async () => {
+    if (!selected || !aiPrompt.trim() || !aiPreview) return;
+    setAiBusy(true);
+    setAiEvents([]);
+    const response = await chatWithAiStream(
+      { sessionId: `session-${Date.now()}`, prompt: aiPrompt.trim(), permission: aiPermission, confirmed: true, documentIds: [selected.document.id] },
+      (event) => setAiEvents((events) => [...events, event]),
+    );
+    if (response.status === "error") setAiEvents([{ kind: "error", code: response.error.code, message: response.error.message, retryable: response.error.retryable }]);
+    setAiBusy(false);
+  };
+
   const addSelectedCollection = async () => {
     if (!selected || !collectionChoice) return;
     const response = await setCollectionMembership(selected.document.id, collectionChoice, true);
@@ -389,7 +413,7 @@ export default function App() {
                 {adapter.kind === "pdf" && <PdfViewer binaryContent={workspace.opened.binaryContent} />}
                 {(adapter.kind === "office" || adapter.kind === "read-only") && <div className="viewer-fallback"><FileWarning aria-hidden="true" /><p>{descriptor.fallbackReason}</p><small>当前文档保持受控只读，批注可独立保存。</small></div>}
               </div>
-              <aside className="annotation-pane"><div className="annotation-heading"><span>批注</span><MessageSquarePlus aria-hidden="true" /></div><textarea aria-label="新批注" value={annotationBody} onChange={(event) => setAnnotationBody(event.target.value)} placeholder="添加批注" /><button type="button" onClick={() => void createAnnotation()} disabled={!annotationBody.trim()}>保存批注</button><div className="annotation-list">{annotations.length === 0 ? <p>暂无批注</p> : annotations.map((annotation) => <article key={annotation.id}><strong>{annotation.anchor.kind}{annotation.anchor.page ? ` · 第 ${annotation.anchor.page} 页` : ""}</strong><p>{annotation.body}</p><small>{annotation.anchor.stable ? "稳定锚点" : "引用文本锚点"}</small></article>)}</div></aside>
+              <aside className="annotation-pane"><div className="annotation-heading"><span>批注</span><MessageSquarePlus aria-hidden="true" /></div><textarea aria-label="新批注" value={annotationBody} onChange={(event) => setAnnotationBody(event.target.value)} placeholder="添加批注" /><button type="button" onClick={() => void createAnnotation()} disabled={!annotationBody.trim()}>保存批注</button><div className="annotation-list">{annotations.length === 0 ? <p>暂无批注</p> : annotations.map((annotation) => <article key={annotation.id}><strong>{annotation.anchor.kind}{annotation.anchor.page ? ` · 第 ${annotation.anchor.page} 页` : ""}</strong><p>{annotation.body}</p><small>{annotation.anchor.stable ? "稳定锚点" : "引用文本锚点"}</small></article>)}</div><section className="ai-panel" aria-labelledby="ai-title"><div className="annotation-heading"><span id="ai-title">AI 助手</span><Sparkles aria-hidden="true" /></div><select aria-label="AI 权限" value={aiPermission} onChange={(event) => { setAiPermission(event.target.value as AiPermission); setAiPreview(null); }}><option value="suggest">建议（只读）</option><option value="assist">协助修改（需接受）</option><option value="autonomous">自主修改（限当前文档）</option></select><textarea aria-label="AI 请求" value={aiPrompt} onChange={(event) => { setAiPrompt(event.target.value); setAiPreview(null); }} placeholder="输入问题或修改要求" /><div className="ai-actions"><button type="button" onClick={() => void previewAi()} disabled={!aiPrompt.trim() || aiBusy}>预览上下文</button><button type="button" onClick={() => void runAi()} disabled={!aiPreview || aiBusy}>{aiBusy ? "生成中" : "发送"}</button></div>{aiPreview && <div className="ai-preview"><strong>发送前确认</strong><span>{aiPreview.sources.length} 个来源 · {aiPreview.characterCount} 字 · 约 {aiPreview.estimatedTokens} tokens</span><span>权限：{aiPreview.permission} · 文档内容不可信</span></div>}<div className="ai-events" aria-live="polite">{aiEvents.map((event, index) => <article key={`${event.kind}-${index}`}><strong>{event.kind === "textDelta" ? "AI" : event.kind === "toolRequest" ? "工具请求" : event.kind === "completed" ? "完成" : event.code}</strong><p>{event.kind === "textDelta" ? event.text : event.kind === "toolRequest" ? `${event.name}（待审阅）` : event.kind === "error" ? event.message : "已收到完整响应"}</p></article>)}</div></section></aside>
             </div>
             <footer className="viewer-footer"><div><button type="button" className="icon-button" aria-label="查看快照" title="快照"><History aria-hidden="true" /></button><select aria-label="恢复快照" value={snapshotChoice} onChange={(event) => setSnapshotChoice(event.target.value)}><option value="">选择快照恢复</option>{snapshots.map((snapshot) => <option key={snapshot.id} value={snapshot.id}>{new Date(snapshot.createdAtMs).toLocaleString("zh-CN")} · {snapshot.byteLen} B</option>)}</select><button type="button" className="icon-button" aria-label="恢复所选快照" title="恢复快照" disabled={!snapshotChoice} onClick={() => void restoreSelectedSnapshot()}><RotateCcw aria-hidden="true" /></button></div><div><button type="button" className="icon-button" aria-label="关闭文档" title="关闭" onClick={() => { void closeDocument(selected.document.id); setWorkspace({ kind: "idle" }); setSelected(null); }}><X aria-hidden="true" /></button><button type="button" className="save-button" disabled={!canSave} onClick={() => void saveWorkspace()}><Save aria-hidden="true" />保存</button></div></footer>
           </div>;

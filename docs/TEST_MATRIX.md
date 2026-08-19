@@ -40,8 +40,8 @@
 
 ## 当前自动化统计
 
-- 前端：6 个测试文件，15 个测试，通过 15，失败 0。
-- Rust：当前工作树 29 个单元测试，通过 29，失败 0；其中工期 4 文档服务新增 3 个测试、工期 5 新增 3 个测试。
+- 前端：7 个测试文件，17 个测试，通过 17，失败 0。
+- Rust：当前工作树 38 个单元测试，通过 38，失败 0；其中工期 6 新增 Provider、上下文、权限、审计和写回冲突测试。
 - 本地资料库：临时目录涵盖新增、未变、修改、删除、重命名、重复导入、未支持格式、授权边界、持久化事件、暂停/恢复/取消/重试和数据库重开恢复；失败 0。权限不足/独占锁定使用相同 `PERMISSION_DENIED`/`HASH_READ_FAILED` 结构化路径，仍需在真实受限 ACL 和独占锁文件上做桌面手工演练。
 - Office POC：浏览器真实矩阵 24 个样本，24 PASS / 0 DEGRADED / 0 FAIL；Node runner 在无 runtime bridge 环境仍为 BLOCKED，这是两条不同证据链。
 - 已知非失败输出：MSVC 链接器以中文输出“正在创建库”，Rust 1.97.1 将该 stdout 显示为 `linker_messages` warning；产物和测试均成功。
@@ -69,3 +69,18 @@
 | Rust OCR 离线失败 | 必需 PP-OCR/ORT 资产缺失返回 `OCR_MODEL_MISSING`，不访问网络 | `pnpm test:rust` | PASS：缺少 4 项资产被结构化报告 |
 | 前端 OCR IPC | 仅用 `DocumentId` 创建 OCR、仅用 `DocumentId/page` 读片段 | `pnpm test` | PASS：15/15 |
 | OCR 真实样本 | 中文、英文、旋转、空白、有/无文本层 PDF、PNG/JPG/TIFF/BMP、损坏输入、恢复/重试；准确率/耗时/内存/失败率 | 已安装批准的离线模型后运行桌面手工矩阵 | BLOCKED：当前环境无法取得并校验模型资产，未伪造性能数据 |
+
+## 工期 6 AI 对话、上下文与权限
+
+| 层级 | 样本/目标 | 命令 | 结果 |
+| --- | --- | --- | --- |
+| Rust Mock Provider | 流式文本、Completed、无 Key、限流、断网、超时、中途取消 | `pnpm test:rust` | PASS：Mock 结构化事件/错误 |
+| Rust Provider 安全 | API Key 不进入事件、错误或日志；OpenAI 请求只由 Rust 代理 | `pnpm test:rust`、静态 `rg` 审计 | PASS：未发现硬编码 Key；错误不含凭据/正文 |
+| @文档 上下文 | `@文档(id)`、`@文档:id`、`@doc:id`、显式页选择、来源/规模/token 预览和截断 | `pnpm test:rust` | PASS：无显式 Document ID 不读取；`untrusted=true` |
+| 提示注入隔离 | 文档正文包含改变权限/系统提示/工具白名单的指令 | `pnpm test:rust` | PASS：正文仅作为 `<untrusted_text>`，工具白名单固定 |
+| 工具白名单 | 只读/建议/写入/禁止工具和越权目标拒绝 | `pnpm test:rust` | PASS：`AI_TOOL_DENIED`，写工具未执行 |
+| 三级权限 | suggest 不写；assist 未接受不写；autonomous 仅授权目标 | `pnpm test:rust` | PASS；写回复用 Snapshot/哈希冲突 |
+| AiAction 审计 | 请求、拒绝、应用、Provider 错误，细节不含正文/路径/Key | `pnpm test:rust` | PASS：migration v5、审计可查询 |
+| 前端 AI IPC | ContextPreview、流式事件、权限/授权目标请求形状，传输异常脱敏 | `pnpm test` | PASS：17/17 |
+| 前端生产构建 | AI IPC/助手面板类型检查 + Vite production | `pnpm build` | PASS：1811 modules transformed |
+| 真实 OpenAI API | Windows Credential Manager Key、SSE 文本/工具事件、手工取消 | 受控桌面环境手工冒烟 | NOT RUN：无批准 Key；不影响 Mock 结论 |

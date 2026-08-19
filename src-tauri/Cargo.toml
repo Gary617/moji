@@ -19,6 +19,7 @@ image = "=0.25.9"
 notify = "=8.2.0"
 lopdf = "=0.38.0"
 ppocr-rs = { version = "=0.7.3", features = ["example-dynamic"] }
+reqwest = { version = "=0.13.4", default-features = false, features = ["blocking", "json", "rustls"] }
 rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
@@ -26,3 +27,4 @@ sha2 = "=0.11.0"
 tauri = { version = "=2.11.5", features = [] }
 tracing = "=0.1.44"
 tracing-subscriber = "=0.3.23"
+windows-sys = { version = "=0.61.2", features = ["Win32_Security_Credentials", "Win32_Foundation"] }

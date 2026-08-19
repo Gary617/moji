@@ -7,13 +7,13 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::V
 use serde_json::{Value, from_str, to_string};
 
 use super::model::{
-    AnnotationAnchor, AnnotationRecord, CollectionId, CollectionRecord, DocumentFormat,
-    DocumentFragment, DocumentId, DocumentRecord, DocumentStatus, IndexRebuildSummary,
-    LIBRARY_SCHEMA_VERSION, LibraryError, LibraryErrorCode, LibraryResult, OcrJobId, OcrJobRecord,
-    OcrTextBox, ScanEvent, ScanEventKind, ScanJobId, ScanJobRecord, ScanJobState, SearchDocument,
-    SearchQuery, SearchResults, SearchSnippet, SnapshotRecord, SourceKind, SourceLocator,
-    SourceRegistration, SourceRootId, SourceRootRecord, TagId, TagRecord, new_identifier,
-    now_unix_ms,
+    AiActionRecord, AnnotationAnchor, AnnotationRecord, CollectionId, CollectionRecord,
+    DocumentFormat, DocumentFragment, DocumentId, DocumentRecord, DocumentStatus,
+    IndexRebuildSummary, LIBRARY_SCHEMA_VERSION, LibraryError, LibraryErrorCode, LibraryResult,
+    OcrJobId, OcrJobRecord, OcrTextBox, ScanEvent, ScanEventKind, ScanJobId, ScanJobRecord,
+    ScanJobState, SearchDocument, SearchQuery, SearchResults, SearchSnippet, SnapshotRecord,
+    SourceKind, SourceLocator, SourceRegistration, SourceRootId, SourceRootRecord, TagId,
+    TagRecord, new_identifier, now_unix_ms,
 };
 
 pub(crate) struct LibraryDatabase {
@@ -294,12 +294,87 @@ impl LibraryDatabase {
                     "#,
                 )
                 .map_err(database_error)?;
+            version = 4;
+        }
+        if version == 4 {
+            self.connection
+                .execute_batch(
+                    r#"
+                    CREATE TABLE IF NOT EXISTS ai_actions (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        session_id TEXT NOT NULL,
+                        document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
+                        permission TEXT NOT NULL CHECK (permission IN ('suggest', 'assist', 'autonomous')),
+                        tool TEXT NOT NULL,
+                        outcome TEXT NOT NULL,
+                        details_json TEXT NOT NULL,
+                        created_at_ms INTEGER NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS ai_actions_session_idx
+                        ON ai_actions(session_id, created_at_ms DESC);
+                    CREATE INDEX IF NOT EXISTS ai_actions_document_idx
+                        ON ai_actions(document_id, created_at_ms DESC);
+                    PRAGMA user_version = 5;
+                    "#,
+                )
+                .map_err(database_error)?;
         }
         Ok(())
     }
 
     pub(crate) fn connection(&self) -> &Connection {
         &self.connection
+    }
+
+    pub(crate) fn record_ai_action(
+        &self,
+        id: &str,
+        session_id: &str,
+        document_id: Option<&DocumentId>,
+        permission: &str,
+        tool: &str,
+        outcome: &str,
+        details: &Value,
+    ) -> LibraryResult<AiActionRecord> {
+        let created_at_ms = now_unix_ms();
+        let details_json = to_string(details).map_err(|_| {
+            LibraryError::new(
+                LibraryErrorCode::DatabaseFailed,
+                "AI audit details could not be serialized",
+            )
+        })?;
+        self.connection.execute(
+            "INSERT INTO ai_actions (id, session_id, document_id, permission, tool, outcome, details_json, created_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![id, session_id, document_id.map(|value| &value.0), permission, tool, outcome, details_json, created_at_ms],
+        ).map_err(database_error)?;
+        Ok(AiActionRecord {
+            id: id.to_owned(),
+            session_id: session_id.to_owned(),
+            document_id: document_id.cloned(),
+            permission: permission.to_owned(),
+            tool: tool.to_owned(),
+            outcome: outcome.to_owned(),
+            details: details.clone(),
+            created_at_ms,
+        })
+    }
+
+    pub(crate) fn ai_actions(
+        &self,
+        session_id: Option<&str>,
+    ) -> LibraryResult<Vec<AiActionRecord>> {
+        let mut statement = if session_id.is_some() {
+            self.connection.prepare("SELECT id, session_id, document_id, permission, tool, outcome, details_json, created_at_ms FROM ai_actions WHERE session_id = ?1 ORDER BY created_at_ms DESC")
+        } else {
+            self.connection.prepare("SELECT id, session_id, document_id, permission, tool, outcome, details_json, created_at_ms FROM ai_actions ORDER BY created_at_ms DESC")
+        }.map_err(database_error)?;
+        let rows = if let Some(session_id) = session_id {
+            statement.query_map(params![session_id], ai_action_from_row)
+        } else {
+            statement.query_map([], ai_action_from_row)
+        }
+        .map_err(database_error)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(database_error)
     }
 
     pub(crate) fn collections(&self) -> LibraryResult<Vec<CollectionRecord>> {
@@ -1761,6 +1836,19 @@ fn document_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DocumentRecord
     })
 }
 
+fn ai_action_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AiActionRecord> {
+    Ok(AiActionRecord {
+        id: row.get(0)?,
+        session_id: row.get(1)?,
+        document_id: row.get::<_, Option<String>>(2)?.map(DocumentId),
+        permission: row.get(3)?,
+        tool: row.get(4)?,
+        outcome: row.get(5)?,
+        details: from_str(&row.get::<_, String>(6)?).map_err(|_| rusqlite::Error::InvalidQuery)?,
+        created_at_ms: row.get(7)?,
+    })
+}
+
 type OcrPageRow = (DocumentId, u32, String, String, Option<f32>, u32, u32, u32);
 
 fn ocr_page_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<OcrPageRow> {
@@ -1895,16 +1983,16 @@ mod tests {
             .connection()
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("version should be readable");
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
         let table_count: i64 = database
             .connection()
             .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('source_roots', 'documents', 'scan_jobs', 'scan_events', 'document_snapshots', 'document_annotations', 'ocr_jobs', 'ocr_pages', 'ocr_text_boxes', 'ocr_metrics')",
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('source_roots', 'documents', 'scan_jobs', 'scan_events', 'document_snapshots', 'document_annotations', 'ocr_jobs', 'ocr_pages', 'ocr_text_boxes', 'ocr_metrics', 'ai_actions')",
                 [],
                 |row| row.get(0),
             )
             .expect("tables should be queryable");
-        assert_eq!(table_count, 10);
+        assert_eq!(table_count, 11);
         let count: i64 = database
             .connection()
             .query_row(

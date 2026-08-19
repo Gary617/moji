@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-工期 5：OCR 与后台任务队列（代码实现完成，等待经批准的离线模型样本验收）
+工期 6：AI 对话、@文档上下文与三级权限（代码实现完成；真实 API 仅待手工冒烟）
 
 ## 已完成
 
@@ -25,6 +25,10 @@
 - 代表性性能测试：内存 bundled SQLite，1,000 条文档、30 次已索引查询、limit 50，AMD Ryzen 7 8845H / 8C16T / 27.8 GB / Windows 11，p95 53 ms。
 - 已完成 migration v4、持久化 `ocr_jobs`/页片段/文字框/指标、本地 PP-OCRv6 Tiny + ONNX Runtime CPU 适配、PDF 文本层检测、扫描 PDF 本机页渲染、PNG/JPG/TIFF/BMP 输入、任务控制、OCR FTS 增量与页框来源定位。
 - PDF 有有效文本层时仅保存本地 `text_layer` 片段，不进入模型推理；无文本层 PDF 与扫描图片由独立 OCR worker 处理。`library_document_fragments` 是后续阶段唯一正文读取入口。
+- 已完成 migration v5 `ai_actions` 审计表、可替换 Rust `AiProvider`、Mock Provider 和 OpenAI Responses API SSE 代理；凭据只从 Windows Credential Manager 读取，前端/日志/数据库不持有 API Key。
+- 已完成 `@文档(id)`/`@文档:id`/`@doc:id` 解析、上下文来源/规模/预计 token/权限预览和 `<untrusted_text>` 边界；没有明确 Document ID 或页片段时不会隐式读取全文。
+- 已完成 `suggest|assist|autonomous` 三级权限、只读/建议/写入/禁止工具白名单、授权目标校验和 `AiAction` 审计。建议模式不写入；协助修改要求用户接受；自主修改仅作用于会话授权目标，并复用 Snapshot、哈希冲突和恢复流程。
+- 已完成前端 AI IPC 适配与 Mock 自动化测试；错误消息只返回稳定码，不含 Key、绝对路径或正文。
 
 ## 当前边界与风险
 
@@ -40,6 +44,8 @@
 
 Office/PDF 业务 UI、编辑器写回、账号、云同步、正式版本库和真实 ZetaOffice runtime bridge 均未实现。OCR 页码和文本框定位已实现；非 OCR 的幻灯片和段落定位仍可能明确降级。不得把扫描器的 canonical path、SQLite 私有表或 `notify` 事件作为后续模块的替代数据入口。
 
+真实 OpenAI API 手工冒烟尚未执行；没有 Key 时自动化按 `AI_NO_API_KEY` 验证，真实 API 失败不影响 Mock 结论。当前 UI 已有上下文预览、权限选择、流式事件和工具待审阅展示；逐项接受并提交 AI 变更的完整审阅面板仍属于后续产品 UI 工作。
+
 ## 工期 4 结果
 
 - 已实现 Document ID 受控打开、统一 Adapter Registry、文本编辑器、PDF.js 第一页只读查看、Office 只读降级和只读/编辑/协助修改模式。
@@ -49,4 +55,4 @@ Office/PDF 业务 UI、编辑器写回、账号、云同步、正式版本库和
 
 ## 下一条命令
 
-工期 6 必须以 `library_document_fragments({ documentId, page? })` 读取统一正文片段，并继续以稳定 `DocumentId` 关联工作流；不得读取 OCR 私有表、路径或临时页图，也不得改变 FTS、Document ID 或源文件不移动不复制不覆盖不变量。
+工期 7 优先审计：提示注入与工具参数模糊化、会话授权生命周期和撤销、SSE 重连/重复事件、Credential Manager ACL/轮换、审计防篡改与留存、上下文 token 上限及大文档分段、真实桌面流式取消，以及未授权目标/外部修改并发竞态。继续以 `library_document_fragments({ documentId, page? })` 读取正文，不得读取 OCR 私有表、路径或临时页图，也不得改变 FTS、Document ID 或源文件不移动不复制不覆盖不变量。

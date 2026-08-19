@@ -1,3 +1,4 @@
+mod ai;
 mod ipc;
 mod library;
 mod logging;
@@ -63,7 +64,12 @@ pub fn run() {
             ipc::library::document_restore_snapshot,
             ipc::library::document_list_annotations,
             ipc::library::document_add_annotation,
-            ipc::library::document_delete_annotation
+            ipc::library::document_delete_annotation,
+            ipc::library::ai_context_preview,
+            ipc::library::ai_chat,
+            ipc::library::ai_chat_stream,
+            ipc::library::ai_apply_change,
+            ipc::library::ai_list_actions
         ])
         .run(tauri::generate_context!())
         .expect("failed to run the Tauri application");

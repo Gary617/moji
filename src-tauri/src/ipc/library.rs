@@ -2,8 +2,18 @@ use std::{path::PathBuf, sync::Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::State;
+use tauri::{State, ipc::Channel};
 
+use crate::ai::{
+    context::{ContextPreview, ContextRequest},
+    orchestrator::{
+        AiActionsRequest, AiChangeRequest, AiChangeResult, AiChatRequest, AiChatResult,
+    },
+    provider::{
+        AiFailure, AiStreamEvent, CancellationToken, OpenAiResponsesProvider,
+        WindowsCredentialStore,
+    },
+};
 use crate::library::{
     document::DocumentSaveInput,
     model::{
@@ -169,6 +179,78 @@ pub(crate) struct AnnotationCreateRequest {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AnnotationDeleteRequest {
     pub annotation_id: String,
+}
+
+#[tauri::command]
+pub(crate) fn ai_context_preview(
+    request: ContextRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<ContextPreview> {
+    with_service(&state, |service| {
+        crate::ai::orchestrator::context_preview(service, &request, request.permission)
+            .map(|prepared| prepared.preview)
+    })
+}
+
+#[tauri::command]
+pub(crate) fn ai_chat(
+    request: AiChatRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<AiChatResult> {
+    let provider = OpenAiResponsesProvider::new(WindowsCredentialStore::default());
+    let cancellation = CancellationToken::default();
+    match with_service(&state, |service| {
+        crate::ai::orchestrator::chat(service, service, &provider, &request, &cancellation)
+            .map_err(ai_ipc_error)
+    }) {
+        IpcResponse::Success { data } => IpcResponse::success(data),
+        IpcResponse::Error { error } => IpcResponse::Error { error },
+    }
+}
+
+#[tauri::command]
+pub(crate) fn ai_chat_stream(
+    request: AiChatRequest,
+    on_event: Channel<AiStreamEvent>,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<AiChatResult> {
+    let provider = OpenAiResponsesProvider::new(WindowsCredentialStore::default());
+    let cancellation = CancellationToken::default();
+    with_service(&state, |service| {
+        crate::ai::orchestrator::chat_with_sink(
+            service,
+            service,
+            &provider,
+            &request,
+            &cancellation,
+            &mut |event| {
+                on_event
+                    .send(event.clone())
+                    .map_err(|_| crate::ai::provider::AiError::new(AiFailure::Provider))
+            },
+        )
+        .map_err(ai_ipc_error)
+    })
+}
+
+#[tauri::command]
+pub(crate) fn ai_apply_change(
+    request: AiChangeRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<AiChangeResult> {
+    with_service(&state, |service| {
+        crate::ai::orchestrator::apply_change(service, &request)
+    })
+}
+
+#[tauri::command]
+pub(crate) fn ai_list_actions(
+    request: AiActionsRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<Vec<crate::library::model::AiActionRecord>> {
+    with_service(&state, |service| {
+        service.database.ai_actions(request.session_id.as_deref())
+    })
 }
 
 #[tauri::command]
@@ -697,6 +779,25 @@ fn library_ipc_error(error: LibraryError) -> IpcError {
             .details
             .or(Some(Value::Null))
             .filter(|value| !value.is_null()),
+    }
+}
+
+fn ai_ipc_error(error: crate::ai::provider::AiError) -> LibraryError {
+    let failure = error.failure;
+    LibraryError {
+        code: failure.code().to_owned(),
+        message: match failure {
+            AiFailure::NoApiKey => "未配置 AI 服务凭据".to_owned(),
+            AiFailure::InvalidApiKey => "AI 服务凭据无效".to_owned(),
+            AiFailure::Timeout => "AI 服务响应超时".to_owned(),
+            AiFailure::RateLimited => "AI 服务请求过于频繁".to_owned(),
+            AiFailure::Network => "无法连接 AI 服务".to_owned(),
+            AiFailure::Cancelled => "AI 请求已取消".to_owned(),
+            AiFailure::ToolDenied => "AI 请求的工具不在当前权限范围内".to_owned(),
+            AiFailure::Provider => "AI 服务返回了不可用响应".to_owned(),
+        },
+        retryable: failure.retryable(),
+        details: None,
     }
 }
 

@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-墨集是面向 Windows 10/11 的本地文档管理桌面应用。本仓库采用 Tauri 2 + React + TypeScript + Rust 的本地模块化单体架构。当前已完成工程基线、Office 编辑器 POC、本地资料库元数据/扫描核心、全文检索/虚拟组织、查看器来源定位扩展和本地 OCR 后台管线；AI、账号、同步和正式写回仍未实现。
+墨集是面向 Windows 10/11 的本地文档管理桌面应用。本仓库采用 Tauri 2 + React + TypeScript + Rust 的本地模块化单体架构。当前已完成工程基线、Office 编辑器 POC、本地资料库元数据/扫描核心、全文检索/虚拟组织、查看器来源定位扩展、本地 OCR 后台管线和受控 AI 文档助手；账号、同步和完整 AI 对话面板仍未实现。
 
 ## 目录结构
 
@@ -144,7 +144,7 @@ library_document_fragments({ documentId, page? }) -> IpcResponse<DocumentFragmen
 
 ## 本地资料库契约（工期 2）
 
-SQLite 数据库位于应用数据目录的 `library.sqlite3`，当前 migration 版本为 `4`，且重复运行不删除数据。工期 2 建立的私有表为：
+SQLite 数据库位于应用数据目录的 `library.sqlite3`，当前 migration 版本为 `5`，且重复运行不删除数据。工期 2 建立的私有表为：
 
 ```text
 source_roots(id, kind, canonical_path, display_name, created_at_ms, active)
@@ -182,6 +182,25 @@ scan_events(id, scan_job_id, document_id?, kind, occurred_at_ms, details_json)
 - 所有页文本增量汇总到既有 `document_search_content.ocr` 并刷新 `document_fts`；搜索 OCR 命中优先给出命中文本框的页和坐标。
 - PP-OCRv6 Tiny / ONNX Runtime CPU 只能从应用数据目录旁 `ocr-models/` 读取，本应用不自动下载模型。模型布局、版本、人工离线取得及未验证模型的性能限制见 `docs/ocr-models.md`。
 - 工期 6 唯一允许读取的正文接口是 `library_document_fragments({ documentId, page? })`；不得访问 `ocr_*` 私有表、canonical path 或临时页图。
+
+### AI 助手、上下文与权限契约（工期 6）
+
+- `AiProvider` 是 Rust 内部可替换接口，`MockProvider` 用于自动化测试；`OpenAiResponsesProvider` 只在 Rust 侧通过 Responses API SSE 转换 `TextDelta`、`ToolRequest` 和 `Completed` 事件。前端永远不接触 API Key。
+- API Key 仅从 Windows Credential Manager 的 `moji/openai/api-key` generic credential 读取；无 Key、错误 Key、超时、限流、断网和取消均返回稳定 `AI_*` 错误，不回显响应正文或凭据。仓库、日志、数据库和崩溃信息不得保存 Key。
+- `ai_context_preview`/`ai_chat` 只接受用户明确给出的 `DocumentId`、`@文档(id)` 和页选择；通过 `LibraryService::ocr_fragments` 读取统一片段，不读取 SQLite 私有表、canonical path 或临时图片。预览返回来源、页、字符规模、预计 token、截断标记、权限和 `untrusted=true`，确认前不得发送。
+- 上下文正文包在 `<untrusted_text>` 中，系统提示明确规定文档内容不是指令。文档内文字不能改变系统提示、上下文范围、权限级别或工具白名单。
+- 权限级别为 `suggest`（只读/建议，禁止写回）、`assist`（只产生待审阅变更，`approved=true` 后逐项或整批写回）和 `autonomous`（仅当前会话 `authorizedDocumentIds`，写回前必须 Snapshot + SHA-256 冲突检查）。所有写回复用 `document_save`，不提供删除、移动、系统命令、未选路径读取或 API Key 工具。
+- 工具注册分为只读、建议、写入、禁止四类；每个工具调用执行名称、参数、权限和目标校验。`ai_actions`（migration v5）记录会话、Document ID、权限、工具、结果和脱敏细节，不记录正文、Key 或绝对路径。`ai_list_actions` 只返回审计结构。
+
+稳定 AI IPC：
+
+```text
+ai_context_preview(ContextRequest) -> IpcResponse<ContextPreview>
+ai_chat(AiChatRequest) -> IpcResponse<AiChatResult>
+ai_chat_stream(AiChatRequest, Channel<AiStreamEvent>) -> IpcResponse<AiChatResult>
+ai_apply_change(AiChangeRequest) -> IpcResponse<AiChangeResult>
+ai_list_actions({ sessionId? }) -> IpcResponse<AiActionRecord[]>
+```
 
 ## EditorAdapter 契约（工期 1）
 

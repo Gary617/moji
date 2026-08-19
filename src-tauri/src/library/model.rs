@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 
 static IDENTIFIER_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-pub const LIBRARY_SCHEMA_VERSION: i64 = 4;
+pub const LIBRARY_SCHEMA_VERSION: i64 = 5;
 
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(transparent)]
@@ -436,6 +436,19 @@ pub struct AnnotationRecord {
     pub anchor: AnnotationAnchor,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiActionRecord {
+    pub id: String,
+    pub session_id: String,
+    pub document_id: Option<DocumentId>,
+    pub permission: String,
+    pub tool: String,
+    pub outcome: String,
+    pub details: Value,
+    pub created_at_ms: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

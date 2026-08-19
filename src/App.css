@@ -153,6 +153,19 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .annotation-list article strong { display: block; color: var(--accent); font-size: 10px; }
 .annotation-list article p { margin: 5px 0; line-height: 1.5; }
 .annotation-list article small { color: var(--muted); }
+.ai-panel { display: grid; gap: 7px; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.ai-panel select, .ai-panel > textarea { width: 100%; min-width: 0; padding: 7px; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 3px; font-size: 11px; }
+.ai-panel > textarea { min-height: 58px; resize: vertical; }
+.ai-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ai-actions button { min-height: 27px; padding: 0 8px; color: var(--paper); background: var(--accent); border: 1px solid var(--accent); border-radius: 3px; cursor: pointer; font-size: 11px; }
+.ai-actions button:first-child { color: var(--ink); background: var(--paper); }
+.ai-actions button:disabled { opacity: .55; cursor: not-allowed; }
+.ai-preview { display: grid; gap: 2px; padding: 7px; color: #4e5655; background: #e8f2ee; border: 1px solid #c9ded5; border-radius: 3px; font-size: 10px; line-height: 1.45; }
+.ai-preview strong { color: var(--accent); font-size: 10px; }
+.ai-events { display: grid; gap: 5px; max-height: 180px; overflow: auto; }
+.ai-events article { padding: 6px; color: #4e5655; background: var(--paper); border: 1px solid var(--line); border-radius: 3px; font-size: 10px; overflow-wrap: anywhere; }
+.ai-events article strong { color: var(--accent); font-size: 9px; }
+.ai-events article p { margin: 3px 0 0; line-height: 1.4; }
 .viewer-footer { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 .viewer-footer > div { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .viewer-footer select { min-width: 0; max-width: 210px; height: 30px; color: var(--ink); border: 1px solid var(--line); border-radius: 4px; background: var(--paper); font-size: 11px; }
