@@ -8,7 +8,7 @@
 
 - SQLite migration v4 新增 `ocr_jobs`、`ocr_pages`、`ocr_text_boxes`、`ocr_metrics`；没有创建平行文档表。OCR 结果始终外键关联既有 `documents.id`。
 - `library_start_ocr` 只消费授权 `DocumentId` 并立即创建持久化任务；`library_ocr_status`、暂停、恢复、取消、重试复用既有 `queued|running|paused|cancelled|failed|completed` 状态模型和独立 SQLite worker 模式。
-- 支持 PDF、PNG、JPG/JPEG、TIFF、BMP。PDF 先由 `lopdf` 判断有效文本层：存在文本层时保存 `text_layer` 页片段并跳过 OCR；无文本层 PDF 使用本机 `pdftoppm` 按页渲染后进入 PP-OCR。
+- 支持 PDF、PNG、JPG/JPEG、TIFF、BMP。PDF 先由 `lopdf` 判断有效文本层：页内存在至少一个有效中英文、数字或汉字字符时保存 `text_layer` 页片段并跳过 OCR；无文本层 PDF 使用本机 `pdftoppm` 按页渲染后进入 PP-OCR。
 - PP-OCRv6 Tiny 通过 `ppocr-rs 0.7.3` / `ort 2.0.0-rc.9` 在 ONNX Runtime CPU 1.26.0 上运行；PP-LCNet 方向模型支持 0/90/180/270 度，并将文字框坐标逆变换回原始页空间。模型只能从应用数据目录本地读取，应用运行时不提供网络下载路径。
 - 每页保存文本、平均置信度、图像宽高、旋转角、文字框四点坐标和来源 (`ocr|text_layer|blank`)；OCR 文本增量写入既有 `document_search_content.ocr` / `document_fts.ocr`。
 - 搜索命中 OCR 文本时，现有 `SourceLocator` 仅最小增加 `boundingBox`，并返回 `page` 与坐标。工期 4 的字段没有重命名或移除。
@@ -34,7 +34,7 @@ library_document_fragments({ documentId, page? }) -> IpcResponse<DocumentFragmen
 
 - `OCR_MODEL_MISSING`：本地模型或 ONNX Runtime DLL 缺失；可重试。
 - `OCR_MODEL_INVALID`、`OCR_RUNTIME_UNAVAILABLE`：模型损坏/不兼容或运行时加载失败；可重试。
-- `OCR_CORRUPT_DOCUMENT`：损坏或空 PDF/图片；`OCR_PDF_RENDERER_UNAVAILABLE`：缺少本机渲染器；`OCR_INPUT_CHANGED`：排队后源文件修改；`OCR_PAGE_FAILED`：页渲染/识别失败。
+- `OCR_CORRUPT_DOCUMENT`：损坏或空 PDF/图片；`OCR_PDF_RENDERER_UNAVAILABLE`：应用本地 Poppler 和系统 `PATH` 均无渲染器；`OCR_INPUT_CHANGED`：排队后源文件修改；`OCR_PAGE_FAILED`：页渲染/识别失败。
 - 应用重开将 `running` OCR 任务转为 `paused`；恢复或重试均由新的后台 worker 处理。原文件始终只读。
 
 ## 验证与性能

@@ -16,6 +16,10 @@ ocr-models/
   runtime/
     onnxruntime.dll               # Windows x64 CPU runtime
     onnxruntime_providers_shared.dll
+  poppler/
+    bin/pdftoppm.exe              # Windows x64 PDF renderer
+    etc/                           # Poppler runtime configuration
+    share/                         # Poppler data files
 ```
 
 固定模型标识是 `PP-OCRv6-tiny-2026.08`，检测/识别来源为 PaddlePaddle 的 `PP-OCRv6_tiny_det_onnx` 和 `PP-OCRv6_tiny_rec_onnx` 发布物；可选方向模型来源为 `PP-LCNet_x1_0_doc_ori_onnx`。`dictionary.txt` 必须由同一个识别模型的 `inference.yml` 中 `PostProcess.character_dict` 导出，不能使用通用 `ppocrv6_dict.txt`，否则 CTC 字表与 Tiny 输出维度不匹配。
@@ -35,7 +39,7 @@ ocr-models/
 
 ## PDF 渲染
 
-扫描 PDF 使用本机 `pdftoppm` 在系统临时目录按页生成 200 DPI PNG，OCR 完成后删除该受控临时目录。`pdftoppm` 不存在时返回 `OCR_PDF_RENDERER_UNAVAILABLE`。有有效文本层的 PDF 不调用渲染器或模型，而是由 `lopdf 0.38.0` 本地提取页文本。
+扫描 PDF 优先使用同一受控目录的 `poppler/bin/pdftoppm.exe`，仅在该文件不存在时回退到进程 `PATH`；渲染器在系统临时目录按页生成 200 DPI PNG，OCR 完成后删除该受控临时目录。两处都不可用时返回 `OCR_PDF_RENDERER_UNAVAILABLE`。验收安装为 Poppler 26.05.0，`pdftoppm.exe` SHA-256 是 `742CBBD9A00931AD16C6618410BC40471375D639A45C61C1D86F3DCFC54B6388`。有有效文本层的 PDF 不调用渲染器或模型，而是由 `lopdf 0.38.0` 本地提取页文本；页内只要存在至少一个有效中英文、数字或汉字字符就视为文本层，短标题和页码也不会重复 OCR。
 
 ## 性能记录
 

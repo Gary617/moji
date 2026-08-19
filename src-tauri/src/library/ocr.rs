@@ -331,8 +331,9 @@ impl LibraryService {
             .retryable()
         })?;
         let mut rendered = Vec::new();
+        let renderer = pdf_renderer_path(&self.ocr_model_dir);
         for page in 1..=page_count {
-            let result = render_pdf_page(input, page, &work_dir);
+            let result = render_pdf_page(&renderer, input, page, &work_dir);
             match result {
                 Ok(image) => rendered.push((page, image)),
                 Err(error) => {
@@ -593,12 +594,31 @@ fn has_effective_text(text: &str) -> bool {
             character.is_alphanumeric() || ('\u{4e00}'..='\u{9fff}').contains(character)
         })
         .count()
-        >= 8
+        >= 1
 }
 
-fn render_pdf_page(input: &Path, page: u32, work_dir: &Path) -> LibraryResult<RgbImage> {
+fn pdf_renderer_path(model_root: &Path) -> PathBuf {
+    let executable = if cfg!(windows) {
+        "pdftoppm.exe"
+    } else {
+        "pdftoppm"
+    };
+    let local = model_root.join("poppler").join("bin").join(executable);
+    if local.is_file() {
+        local
+    } else {
+        PathBuf::from("pdftoppm")
+    }
+}
+
+fn render_pdf_page(
+    renderer: &Path,
+    input: &Path,
+    page: u32,
+    work_dir: &Path,
+) -> LibraryResult<RgbImage> {
     let prefix = work_dir.join(format!("page-{page}"));
-    let output = Command::new("pdftoppm")
+    let output = Command::new(renderer)
         .args([
             "-f",
             &page.to_string(),
@@ -724,13 +744,29 @@ fn unrotate_point(x: u32, y: u32, rotation_degrees: u32, width: u32, height: u32
 
 #[cfg(test)]
 mod tests {
-    use super::{has_effective_text, model_paths};
+    use super::{has_effective_text, model_paths, pdf_renderer_path};
 
     #[test]
     fn treats_cjk_and_latin_pdf_text_as_a_valid_text_layer() {
         assert!(has_effective_text("This PDF already has searchable text."));
         assert!(has_effective_text("这是一段已经存在的可搜索中文文本内容。"));
+        assert!(has_effective_text("页 1"));
         assert!(!has_effective_text("   "));
+    }
+
+    #[test]
+    fn prefers_the_app_local_pdf_renderer_over_the_process_path() {
+        let root = std::env::temp_dir().join(format!("moji-pdf-renderer-{}", std::process::id()));
+        let executable = if cfg!(windows) {
+            "pdftoppm.exe"
+        } else {
+            "pdftoppm"
+        };
+        let local = root.join("poppler").join("bin").join(executable);
+        std::fs::create_dir_all(local.parent().unwrap()).unwrap();
+        std::fs::write(&local, b"test renderer placeholder").unwrap();
+        assert_eq!(pdf_renderer_path(&root), local);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
