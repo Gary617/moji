@@ -109,7 +109,11 @@ impl LibraryService {
         })?;
         let current_hash = sha256(&original);
         if current_hash != input.expected_sha256 {
-            return Err(conflict_error(&document, input.expected_sha256, &current_hash));
+            return Err(conflict_error(
+                &document,
+                input.expected_sha256,
+                &current_hash,
+            ));
         }
         let snapshot = self
             .database
@@ -157,7 +161,12 @@ impl LibraryService {
             .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
             .and_then(|duration| i64::try_from(duration.as_millis()).ok())
             .unwrap_or_else(now_unix_ms);
-        self.database.update_document_file_state(input.document_id, &new_hash, new_bytes.len() as u64, modified_at_ms)?;
+        self.database.update_document_file_state(
+            input.document_id,
+            &new_hash,
+            new_bytes.len() as u64,
+            modified_at_ms,
+        )?;
         Ok(DocumentSaveResult {
             document_id: input.document_id.clone(),
             snapshot_id: snapshot.id,
@@ -223,7 +232,12 @@ impl LibraryService {
             .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
             .and_then(|duration| i64::try_from(duration.as_millis()).ok())
             .unwrap_or_else(now_unix_ms);
-        self.database.update_document_file_state(document_id, &sha256(&content), content.len() as u64, modified_at_ms)?;
+        self.database.update_document_file_state(
+            document_id,
+            &sha256(&content),
+            content.len() as u64,
+            modified_at_ms,
+        )?;
         Ok(DocumentSaveResult {
             document_id: document_id.clone(),
             snapshot_id: snapshot.id,
@@ -322,7 +336,11 @@ fn sha256(bytes: &[u8]) -> String {
         .collect()
 }
 
-fn conflict_error(document: &DocumentRecord, expected_hash: &str, current_hash: &str) -> LibraryError {
+fn conflict_error(
+    document: &DocumentRecord,
+    expected_hash: &str,
+    current_hash: &str,
+) -> LibraryError {
     LibraryError::new(LibraryErrorCode::DocumentConflict, "文件在编辑期间已被外部修改").with_details(serde_json::json!({ "documentId": document.id, "expectedSha256": expected_hash, "currentSha256": current_hash, "actions": ["abandon", "save_as", "compare", "restore"] }))
 }
 

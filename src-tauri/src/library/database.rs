@@ -7,10 +7,10 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::V
 use serde_json::{Value, from_str, to_string};
 
 use super::model::{
-    AnnotationAnchor, AnnotationRecord, CollectionId, CollectionRecord, DocumentFormat, DocumentFragment,
-    DocumentId, DocumentRecord, DocumentStatus, IndexRebuildSummary, LIBRARY_SCHEMA_VERSION,
-    LibraryError, LibraryErrorCode, LibraryResult, OcrJobId, OcrJobRecord, OcrTextBox,
-    ScanEvent, ScanEventKind, ScanJobId, ScanJobRecord, ScanJobState, SearchDocument,
+    AnnotationAnchor, AnnotationRecord, CollectionId, CollectionRecord, DocumentFormat,
+    DocumentFragment, DocumentId, DocumentRecord, DocumentStatus, IndexRebuildSummary,
+    LIBRARY_SCHEMA_VERSION, LibraryError, LibraryErrorCode, LibraryResult, OcrJobId, OcrJobRecord,
+    OcrTextBox, ScanEvent, ScanEventKind, ScanJobId, ScanJobRecord, ScanJobState, SearchDocument,
     SearchQuery, SearchResults, SearchSnippet, SnapshotRecord, SourceKind, SourceLocator,
     SourceRegistration, SourceRootId, SourceRootRecord, TagId, TagRecord, new_identifier,
     now_unix_ms,
@@ -537,7 +537,14 @@ impl LibraryDatabase {
                 "document is not currently available",
             ));
         }
-        if !matches!(document.format, DocumentFormat::Pdf | DocumentFormat::Png | DocumentFormat::Jpg | DocumentFormat::Tiff | DocumentFormat::Bmp) {
+        if !matches!(
+            document.format,
+            DocumentFormat::Pdf
+                | DocumentFormat::Png
+                | DocumentFormat::Jpg
+                | DocumentFormat::Tiff
+                | DocumentFormat::Bmp
+        ) {
             return Err(LibraryError::new(
                 LibraryErrorCode::OcrUnsupportedFormat,
                 "this document format cannot be sent to OCR",
@@ -577,10 +584,12 @@ impl LibraryDatabase {
     }
 
     pub(crate) fn recover_running_ocr_jobs(&mut self) -> LibraryResult<()> {
-        self.connection.execute(
-            "UPDATE ocr_jobs SET state = 'paused', updated_at_ms = ?1 WHERE state = 'running'",
-            params![now_unix_ms()],
-        ).map_err(database_error)?;
+        self.connection
+            .execute(
+                "UPDATE ocr_jobs SET state = 'paused', updated_at_ms = ?1 WHERE state = 'running'",
+                params![now_unix_ms()],
+            )
+            .map_err(database_error)?;
         Ok(())
     }
 
@@ -600,9 +609,14 @@ impl LibraryDatabase {
             params![id.0, state.as_str(), i64::from(page_count), i64::from(processed_count), i64::from(failed_count), i64::from(retry_count), error_code, duration_ms.map(|value| sqlite_int(value)), now_unix_ms()],
         ).map_err(database_error)?;
         if changed == 0 {
-            return Err(LibraryError::new(LibraryErrorCode::OcrJobNotFound, "OCR job was not found"));
+            return Err(LibraryError::new(
+                LibraryErrorCode::OcrJobNotFound,
+                "OCR job was not found",
+            ));
         }
-        self.ocr_job(id)?.ok_or_else(|| LibraryError::new(LibraryErrorCode::OcrJobNotFound, "OCR job was not found"))
+        self.ocr_job(id)?.ok_or_else(|| {
+            LibraryError::new(LibraryErrorCode::OcrJobNotFound, "OCR job was not found")
+        })
     }
 
     pub(crate) fn update_running_ocr_progress(
@@ -616,7 +630,9 @@ impl LibraryDatabase {
             "UPDATE ocr_jobs SET page_count = ?2, processed_count = ?3, failed_count = ?4, updated_at_ms = ?5 WHERE id = ?1 AND state = 'running'",
             params![id.0, i64::from(page_count), i64::from(processed_count), i64::from(failed_count), now_unix_ms()],
         ).map_err(database_error)?;
-        if changed == 0 { return Ok(None); }
+        if changed == 0 {
+            return Ok(None);
+        }
         self.ocr_job(id)
     }
 
@@ -636,7 +652,12 @@ impl LibraryDatabase {
     }
 
     pub(crate) fn clear_ocr_results(&mut self, document_id: &DocumentId) -> LibraryResult<()> {
-        self.connection.execute("DELETE FROM ocr_pages WHERE document_id = ?1", params![document_id.0]).map_err(database_error)?;
+        self.connection
+            .execute(
+                "DELETE FROM ocr_pages WHERE document_id = ?1",
+                params![document_id.0],
+            )
+            .map_err(database_error)?;
         self.refresh_ocr_search_content(document_id)
     }
 
@@ -653,10 +674,18 @@ impl LibraryDatabase {
         boxes: &[OcrTextBox],
     ) -> LibraryResult<()> {
         if !matches!(source, "ocr" | "text_layer" | "blank") {
-            return Err(LibraryError::new(LibraryErrorCode::InvalidArgument, "OCR page source is invalid"));
+            return Err(LibraryError::new(
+                LibraryErrorCode::InvalidArgument,
+                "OCR page source is invalid",
+            ));
         }
         let transaction = self.connection.transaction().map_err(database_error)?;
-        transaction.execute("DELETE FROM ocr_pages WHERE document_id = ?1 AND page = ?2", params![document_id.0, i64::from(page)]).map_err(database_error)?;
+        transaction
+            .execute(
+                "DELETE FROM ocr_pages WHERE document_id = ?1 AND page = ?2",
+                params![document_id.0, i64::from(page)],
+            )
+            .map_err(database_error)?;
         transaction.execute(
             "INSERT INTO ocr_pages (document_id, page, source, text, confidence, width, height, rotation_degrees) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![document_id.0, i64::from(page), source, text, confidence, i64::from(width), i64::from(height), i64::from(rotation_degrees)],
@@ -678,20 +707,51 @@ impl LibraryDatabase {
     ) -> LibraryResult<Vec<DocumentFragment>> {
         self.ensure_document(document_id)?;
         let mut sql = "SELECT document_id, page, source, text, confidence, width, height, rotation_degrees FROM ocr_pages WHERE document_id = ?1".to_owned();
-        if page.is_some() { sql.push_str(" AND page = ?2"); }
+        if page.is_some() {
+            sql.push_str(" AND page = ?2");
+        }
         sql.push_str(" ORDER BY page");
         let mut statement = self.connection.prepare(&sql).map_err(database_error)?;
         let page_rows = if let Some(page) = page {
             statement.query_map(params![document_id.0, i64::from(page)], ocr_page_from_row)
         } else {
             statement.query_map(params![document_id.0], ocr_page_from_row)
-        }.map_err(database_error)?.collect::<Result<Vec<_>, _>>().map_err(database_error)?;
+        }
+        .map_err(database_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(database_error)?;
         let mut fragments = Vec::new();
-        for (fragment_document_id, fragment_page, source, text, confidence, width, height, rotation_degrees) in page_rows {
+        for (
+            fragment_document_id,
+            fragment_page,
+            source,
+            text,
+            confidence,
+            width,
+            height,
+            rotation_degrees,
+        ) in page_rows
+        {
             let boxes = self.ocr_boxes(document_id, fragment_page)?;
             fragments.push(DocumentFragment {
-                document_id: fragment_document_id, page: fragment_page, source, text, confidence, width, height, rotation_degrees,
-                source_locator: SourceLocator { kind: "page".to_owned(), page: Some(fragment_page), slide: None, paragraph: None, bounding_box: None, available: true, reason: None }, boxes,
+                document_id: fragment_document_id,
+                page: fragment_page,
+                source,
+                text,
+                confidence,
+                width,
+                height,
+                rotation_degrees,
+                source_locator: SourceLocator {
+                    kind: "page".to_owned(),
+                    page: Some(fragment_page),
+                    slide: None,
+                    paragraph: None,
+                    bounding_box: None,
+                    available: true,
+                    reason: None,
+                },
+                boxes,
             });
         }
         Ok(fragments)
@@ -699,10 +759,17 @@ impl LibraryDatabase {
 
     fn ocr_boxes(&self, document_id: &DocumentId, page: u32) -> LibraryResult<Vec<OcrTextBox>> {
         let mut statement = self.connection.prepare("SELECT text, confidence, points_json FROM ocr_text_boxes WHERE document_id = ?1 AND page = ?2 ORDER BY id").map_err(database_error)?;
-        let rows = statement.query_map(params![document_id.0, i64::from(page)], |row| {
-            let points_json: String = row.get(2)?;
-            Ok(OcrTextBox { text: row.get(0)?, confidence: row.get(1)?, bounding_box: from_str(&points_json).map_err(|_| rusqlite::Error::InvalidQuery)? })
-        }).map_err(database_error)?;
+        let rows = statement
+            .query_map(params![document_id.0, i64::from(page)], |row| {
+                let points_json: String = row.get(2)?;
+                Ok(OcrTextBox {
+                    text: row.get(0)?,
+                    confidence: row.get(1)?,
+                    bounding_box: from_str(&points_json)
+                        .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                })
+            })
+            .map_err(database_error)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(database_error)
     }
 
@@ -711,7 +778,16 @@ impl LibraryDatabase {
             "SELECT COALESCE(group_concat(text, char(10)), '') FROM (SELECT text FROM ocr_pages WHERE document_id = ?1 ORDER BY page)",
             params![document_id.0], |row| row.get(0),
         ).map_err(database_error)?;
-        let body: String = self.connection.query_row("SELECT body FROM document_search_content WHERE document_id = ?1", params![document_id.0], |row| row.get(0)).optional().map_err(database_error)?.unwrap_or_default();
+        let body: String = self
+            .connection
+            .query_row(
+                "SELECT body FROM document_search_content WHERE document_id = ?1",
+                params![document_id.0],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(database_error)?
+            .unwrap_or_default();
         self.set_document_search_fields(document_id, &body, &ocr)
     }
 
@@ -1555,7 +1631,11 @@ fn fts_query(text: &str) -> String {
 }
 
 impl LibraryDatabase {
-    fn source_locator_for_search(&self, document: &DocumentRecord, search_text: Option<&str>) -> SourceLocator {
+    fn source_locator_for_search(
+        &self,
+        document: &DocumentRecord,
+        search_text: Option<&str>,
+    ) -> SourceLocator {
         let candidate = search_text
             .map(str::trim)
             .filter(|text| !text.is_empty())
@@ -1567,19 +1647,65 @@ impl LibraryDatabase {
         source_locator(document)
     }
 
-    fn ocr_hit_locator(&self, document_id: &DocumentId, text: &str) -> LibraryResult<Option<SourceLocator>> {
+    fn ocr_hit_locator(
+        &self,
+        document_id: &DocumentId,
+        text: &str,
+    ) -> LibraryResult<Option<SourceLocator>> {
         let has_text = !text.is_empty();
         let query = if has_text {
             "SELECT page, points_json FROM ocr_text_boxes WHERE document_id = ?1 AND text LIKE ?2 ORDER BY page, id LIMIT 1"
         } else {
             "SELECT page, points_json FROM ocr_text_boxes WHERE document_id = ?1 ORDER BY page, id LIMIT 1"
         };
-        let params: Vec<SqlValue> = if has_text { vec![SqlValue::Text(document_id.0.clone()), SqlValue::Text(format!("%{text}%"))] } else { vec![SqlValue::Text(document_id.0.clone())] };
-        if let Some((page, points_json)) = self.connection.query_row(query, params_from_iter(params.iter()), |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))).optional().map_err(database_error)? {
-            return Ok(Some(SourceLocator { kind: "page".to_owned(), page: Some(page.max(0) as u32), slide: None, paragraph: None, bounding_box: from_str(&points_json).ok(), available: true, reason: None }));
+        let params: Vec<SqlValue> = if has_text {
+            vec![
+                SqlValue::Text(document_id.0.clone()),
+                SqlValue::Text(format!("%{text}%")),
+            ]
+        } else {
+            vec![SqlValue::Text(document_id.0.clone())]
+        };
+        if let Some((page, points_json)) = self
+            .connection
+            .query_row(query, params_from_iter(params.iter()), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .optional()
+            .map_err(database_error)?
+        {
+            return Ok(Some(SourceLocator {
+                kind: "page".to_owned(),
+                page: Some(page.max(0) as u32),
+                slide: None,
+                paragraph: None,
+                bounding_box: from_str(&points_json).ok(),
+                available: true,
+                reason: None,
+            }));
         }
-        let page_query = if has_text { "SELECT page FROM ocr_pages WHERE document_id = ?1 AND text LIKE ?2 ORDER BY page LIMIT 1" } else { "SELECT page FROM ocr_pages WHERE document_id = ?1 ORDER BY page LIMIT 1" };
-        self.connection.query_row(page_query, params_from_iter(params.iter()), |row| row.get::<_, i64>(0)).optional().map_err(database_error).map(|page| page.map(|page| SourceLocator { kind: "page".to_owned(), page: Some(page.max(0) as u32), slide: None, paragraph: None, bounding_box: None, available: true, reason: None }))
+        let page_query = if has_text {
+            "SELECT page FROM ocr_pages WHERE document_id = ?1 AND text LIKE ?2 ORDER BY page LIMIT 1"
+        } else {
+            "SELECT page FROM ocr_pages WHERE document_id = ?1 ORDER BY page LIMIT 1"
+        };
+        self.connection
+            .query_row(page_query, params_from_iter(params.iter()), |row| {
+                row.get::<_, i64>(0)
+            })
+            .optional()
+            .map_err(database_error)
+            .map(|page| {
+                page.map(|page| SourceLocator {
+                    kind: "page".to_owned(),
+                    page: Some(page.max(0) as u32),
+                    slide: None,
+                    paragraph: None,
+                    bounding_box: None,
+                    available: true,
+                    reason: None,
+                })
+            })
     }
 }
 
@@ -1683,7 +1809,8 @@ fn ocr_job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<OcrJobRecord> {
         id: OcrJobId(row.get(0)?),
         document_id: DocumentId(row.get(1)?),
         source_root_id: SourceRootId(row.get(2)?),
-        state: ScanJobState::parse(&row.get::<_, String>(3)?).ok_or(rusqlite::Error::InvalidQuery)?,
+        state: ScanJobState::parse(&row.get::<_, String>(3)?)
+            .ok_or(rusqlite::Error::InvalidQuery)?,
         page_count: row.get::<_, i64>(4)?.max(0) as u32,
         processed_count: row.get::<_, i64>(5)?.max(0) as u32,
         failed_count: row.get::<_, i64>(6)?.max(0) as u32,
@@ -1692,7 +1819,9 @@ fn ocr_job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<OcrJobRecord> {
         model_version: row.get(9)?,
         runtime_version: row.get(10)?,
         input_sha256: row.get(11)?,
-        duration_ms: row.get::<_, Option<i64>>(12)?.map(|value| value.max(0) as u64),
+        duration_ms: row
+            .get::<_, Option<i64>>(12)?
+            .map(|value| value.max(0) as u64),
         model_bytes: row.get::<_, i64>(13)?.max(0) as u64,
         created_at_ms: row.get(14)?,
         updated_at_ms: row.get(15)?,
@@ -1947,7 +2076,12 @@ mod tests {
         assert_eq!(results.total, 1);
         assert_eq!(results.items[0].source_locator.page, Some(1));
         assert!(results.items[0].source_locator.bounding_box.is_some());
-        assert!(results.items[0].snippets.iter().any(|snippet| snippet.field == "ocr"));
+        assert!(
+            results.items[0]
+                .snippets
+                .iter()
+                .any(|snippet| snippet.field == "ocr")
+        );
     }
 
     #[test]
@@ -1960,7 +2094,12 @@ mod tests {
             DocumentFormat::Jpg,
         );
         let job = database
-            .create_ocr_job(&document_id, "PP-OCRv6-tiny-2026.08", "ONNX Runtime CPU", 12_345)
+            .create_ocr_job(
+                &document_id,
+                "PP-OCRv6-tiny-2026.08",
+                "ONNX Runtime CPU",
+                12_345,
+            )
             .expect("OCR job should be queued");
         assert_eq!(job.state, ScanJobState::Queued);
         let running = database

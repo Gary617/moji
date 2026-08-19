@@ -41,7 +41,7 @@
 ## 当前自动化统计
 
 - 前端：6 个测试文件，15 个测试，通过 15，失败 0。
-- Rust：当前工作树 28 个单元测试，通过 28，失败 0；其中工期 4 文档服务新增 3 个测试。
+- Rust：当前工作树 29 个单元测试，通过 29，失败 0；其中工期 4 文档服务新增 3 个测试、工期 5 新增 3 个测试。
 - 本地资料库：临时目录涵盖新增、未变、修改、删除、重命名、重复导入、未支持格式、授权边界、持久化事件、暂停/恢复/取消/重试和数据库重开恢复；失败 0。权限不足/独占锁定使用相同 `PERMISSION_DENIED`/`HASH_READ_FAILED` 结构化路径，仍需在真实受限 ACL 和独占锁文件上做桌面手工演练。
 - Office POC：浏览器真实矩阵 24 个样本，24 PASS / 0 DEGRADED / 0 FAIL；Node runner 在无 runtime bridge 环境仍为 BLOCKED，这是两条不同证据链。
 - 已知非失败输出：MSVC 链接器以中文输出“正在创建库”，Rust 1.97.1 将该 stdout 显示为 `linker_messages` warning；产物和测试均成功。
@@ -59,4 +59,13 @@
 | 前端 Registry | Markdown/TXT/CSV、PDF.js、Office、未支持格式分流 | `pnpm test` | PASS |
 | 前端构建 | PDF.js worker、查看器工作区和状态 UI | `pnpm build` | PASS |
 
-已知降级：Office 产品宿主 runtime bridge 未配置，保持只读；PDF 只渲染第一页；页码/段落稳定定位尚未完成；另存入口显示但等待受控文件对话框能力。全量 Rust 命令受并发 OCR 依赖首次编译影响，库测试已 25/25 PASS。
+已知降级：Office 产品宿主 runtime bridge 未配置，保持只读；PDF 只渲染第一页；非 OCR 的段落稳定定位尚未完成；另存入口显示但等待受控文件对话框能力。
+
+## 工期 5 OCR 与后台任务队列
+
+| 层级 | 样本/目标 | 命令 | 结果 |
+| --- | --- | --- | --- |
+| Rust OCR schema/片段 | v4、OCR 任务元数据与进度、页文本/置信度/文字框、OCR FTS 与命中页框 | `pnpm test:rust` | PASS：Rust 29/29 |
+| Rust OCR 离线失败 | 必需 PP-OCR/ORT 资产缺失返回 `OCR_MODEL_MISSING`，不访问网络 | `pnpm test:rust` | PASS：缺少 4 项资产被结构化报告 |
+| 前端 OCR IPC | 仅用 `DocumentId` 创建 OCR、仅用 `DocumentId/page` 读片段 | `pnpm test` | PASS：15/15 |
+| OCR 真实样本 | 中文、英文、旋转、空白、有/无文本层 PDF、PNG/JPG/TIFF/BMP、损坏输入、恢复/重试；准确率/耗时/内存/失败率 | 已安装批准的离线模型后运行桌面手工矩阵 | BLOCKED：当前环境无法取得并校验模型资产，未伪造性能数据 |

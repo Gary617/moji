@@ -4,7 +4,7 @@ const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 
-import { searchLibrary, setCollectionMembership } from "../../src/ipc/library";
+import { documentFragments, searchLibrary, setCollectionMembership, startOcr } from "../../src/ipc/library";
 
 describe("library IPC", () => {
   beforeEach(() => invokeMock.mockReset());
@@ -28,6 +28,20 @@ describe("library IPC", () => {
 
     expect(invokeMock).toHaveBeenCalledWith("library_set_collection_membership", {
       request: { documentId: "doc-stable-id", relationId: "col-stable-id", included: true },
+    });
+  });
+
+  it("queues OCR and retrieves page fragments using only stable document and job ids", async () => {
+    invokeMock.mockResolvedValue({ status: "success", data: { id: "ocr-1" } });
+
+    await startOcr("doc-stable-id");
+    expect(invokeMock).toHaveBeenCalledWith("library_start_ocr", {
+      request: { documentId: "doc-stable-id" },
+    });
+
+    await documentFragments("doc-stable-id", 3);
+    expect(invokeMock).toHaveBeenLastCalledWith("library_document_fragments", {
+      request: { documentId: "doc-stable-id", page: 3 },
     });
   });
 

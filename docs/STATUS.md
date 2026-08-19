@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-工期 4：查看器、编辑器适配、批注和版本快照（已实现，Office 产品 bridge 只读降级）
+工期 5：OCR 与后台任务队列（代码实现完成，等待经批准的离线模型样本验收）
 
 ## 已完成
 
@@ -23,6 +23,8 @@
 - 已完成 Collection/Tag 多对多引用、收藏、最近使用和稳定搜索 IPC；查询结果含 Document ID、匹配片段和结构化 SourceLocator。
 - 已完成三栏资料库 UI：导航、搜索结果、工作区占位，覆盖加载、空、无结果和错误状态；UI 不以绝对路径作为主键且仅显示路径尾部。
 - 代表性性能测试：内存 bundled SQLite，1,000 条文档、30 次已索引查询、limit 50，AMD Ryzen 7 8845H / 8C16T / 27.8 GB / Windows 11，p95 53 ms。
+- 已完成 migration v4、持久化 `ocr_jobs`/页片段/文字框/指标、本地 PP-OCRv6 Tiny + ONNX Runtime CPU 适配、PDF 文本层检测、扫描 PDF 本机页渲染、PNG/JPG/TIFF/BMP 输入、任务控制、OCR FTS 增量与页框来源定位。
+- PDF 有有效文本层时仅保存本地 `text_layer` 片段，不进入模型推理；无文本层 PDF 与扫描图片由独立 OCR worker 处理。`library_document_fragments` 是后续阶段唯一正文读取入口。
 
 ## 当前边界与风险
 
@@ -32,18 +34,19 @@
 - 夹具是结构化代表性输入，批注、图表和复杂排版还需后续视觉核对。
 - 当前 worker 使用每任务线程，尚未连接产品 UI、全局并发上限或大目录背压；任务状态和事件仍可通过 IPC 轮询读取。
 - 本机全局 Node 为 `24.13.0`，低于仓库要求；本次前端测试与构建通过但输出 engine warning。Rust 命令仍需显式将 `C:\Users\Gary\.cargo\bin` 加入 `PATH`。
+- 当前环境无法连接批准的 PP-OCR 模型来源，未安装可校验的 `det.onnx`/`rec.onnx`/字表/`onnxruntime.dll`。真实中英/旋转/空白/损坏样本的准确率、单页耗时、内存和失败率仍须在离线模型安装后填写；应用会返回 `OCR_MODEL_MISSING`，不会回退到云端或假 OCR。
 
 ## 明确未做
 
-正文提取、OCR、Office/PDF 业务 UI、编辑器写回、账号、云同步、正式版本库和真实 ZetaOffice runtime bridge 均未实现。页码、幻灯片和段落来源定位当前明确标记未实现。不得把扫描器的 canonical path、SQLite 私有表或 `notify` 事件作为后续模块的替代数据入口。
+Office/PDF 业务 UI、编辑器写回、账号、云同步、正式版本库和真实 ZetaOffice runtime bridge 均未实现。OCR 页码和文本框定位已实现；非 OCR 的幻灯片和段落定位仍可能明确降级。不得把扫描器的 canonical path、SQLite 私有表或 `notify` 事件作为后续模块的替代数据入口。
 
 ## 工期 4 结果
 
 - 已实现 Document ID 受控打开、统一 Adapter Registry、文本编辑器、PDF.js 第一页只读查看、Office 只读降级和只读/编辑/协助修改模式。
 - 已实现 migration v3 增量的 Snapshot/Annotation 表和 IPC（当前工作树后续迁移总版本为 v4）；文本写回前创建原始哈希快照，外部修改返回 `DOCUMENT_CONFLICT`，失败保留/恢复原文件。
-- Rust 文档服务测试 3/3 PASS；Rust 库单测总计 28/28 PASS（包含当前工作树已有的后续 OCR 用例）；前端 6 个测试文件、15/15 PASS；`pnpm build` PASS。
+- Rust 文档服务测试 3/3 PASS；Rust 库单测总计 29/29 PASS；前端 6 个测试文件、15/15 PASS；`pnpm build` PASS。
 - Office 产品桌面 bridge 尚未接入；PDF 页码、Office 幻灯片、正文段落稳定定位仍是明确降级，批注保留引用文本或页码锚点。
 
 ## 下一条命令
 
-工期 4 应以稳定的 `DocumentId`、`library_search` 查询结果和 `SourceLocator` 结构接入查看器；不得改变 FTS 字段、过滤参数、Document ID 或源文件不移动不复制不覆盖不变量。
+工期 6 必须以 `library_document_fragments({ documentId, page? })` 读取统一正文片段，并继续以稳定 `DocumentId` 关联工作流；不得读取 OCR 私有表、路径或临时页图，也不得改变 FTS、Document ID 或源文件不移动不复制不覆盖不变量。

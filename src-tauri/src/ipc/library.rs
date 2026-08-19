@@ -475,7 +475,9 @@ pub(crate) fn library_document_fragments(
     state: State<'_, LibraryState>,
 ) -> IpcResponse<Vec<DocumentFragment>> {
     let document_id = DocumentId(request.document_id);
-    with_service(&state, |service| service.ocr_fragments(&document_id, request.page))
+    with_service(&state, |service| {
+        service.ocr_fragments(&document_id, request.page)
+    })
 }
 
 #[tauri::command]

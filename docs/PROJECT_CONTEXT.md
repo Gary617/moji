@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-墨集是面向 Windows 10/11 的本地文档管理桌面应用。本仓库采用 Tauri 2 + React + TypeScript + Rust 的本地模块化单体架构。当前已完成工程基线、Office 编辑器 POC、本地资料库元数据/扫描核心和全文检索/虚拟组织；OCR、AI、账号、同步和正式写回仍未实现。
+墨集是面向 Windows 10/11 的本地文档管理桌面应用。本仓库采用 Tauri 2 + React + TypeScript + Rust 的本地模块化单体架构。当前已完成工程基线、Office 编辑器 POC、本地资料库元数据/扫描核心、全文检索/虚拟组织、查看器来源定位扩展和本地 OCR 后台管线；AI、账号、同步和正式写回仍未实现。
 
 ## 目录结构
 
@@ -55,7 +55,7 @@
 - React/React DOM `19.2.8`，TypeScript `7.0.2`，Vite `8.2.1`。
 - Vitest `4.1.11`，Testing Library React `16.3.2`，jsdom `30.0.1`。
 - `zetajs` `1.2.0`（MIT，2025-06-11 release；ZetaOffice/LibreOffice UNO browser wrapper）。ZetaOffice 官方站点（2026-08-18）标记为开放 beta，并列出 Windows 64-bit、32-bit 和 ARM64 桌面下载；本仓库不分发其二进制。浏览器 POC 使用官方 CDN `https://cdn.zetaoffice.net/zetaoffice_latest/`，不是把 WASM/data 提交到仓库。
-- `rusqlite` `0.40.2`（`bundled` SQLite）、`file-id` `0.2.3`（Windows File ID）、`notify` `8.2.0`、`sha2` `0.11.0`、serde `1.0.229`，serde_json `1.0.151`，tracing `0.1.44`，tracing-subscriber `0.3.23`。
+- `rusqlite` `0.40.2`（`bundled` SQLite）、`file-id` `0.2.3`（Windows File ID）、`notify` `8.2.0`、`lopdf` `0.38.0`、`image` `0.25.9`、`ppocr-rs` `0.7.3`（PP-OCRv6，固定 `ort 2.0.0-rc.9` / ONNX Runtime CPU）、`sha2` `0.11.0`、serde `1.0.229`，serde_json `1.0.151`，tracing `0.1.44`，tracing-subscriber `0.3.23`。
 
 所有 Node 直接依赖使用精确版本，完整解析结果以 `pnpm-lock.yaml` 为准。所有 Rust 直接依赖使用精确版本，完整解析结果以 `src-tauri/Cargo.lock` 为准。
 
@@ -132,11 +132,19 @@ library_cancel_scan({ scanJobId }) -> IpcResponse<ScanJobRecord>
 library_retry_scan({ scanJobId }) -> IpcResponse<ScanJobRecord>
 library_start_watch({ sourceRootId }) -> IpcResponse<WatchStatus>
 library_poll_watch({ sourceRootId }) -> IpcResponse<WatchPollResult>
+library_ocr_model_status() -> IpcResponse<OcrModelStatus>
+library_start_ocr({ documentId }) -> IpcResponse<OcrJobRecord>
+library_ocr_status({ ocrJobId }) -> IpcResponse<OcrJobRecord>
+library_pause_ocr({ ocrJobId }) -> IpcResponse<OcrJobRecord>
+library_resume_ocr({ ocrJobId }) -> IpcResponse<OcrJobRecord>
+library_cancel_ocr({ ocrJobId }) -> IpcResponse<OcrJobRecord>
+library_retry_ocr({ ocrJobId }) -> IpcResponse<OcrJobRecord>
+library_document_fragments({ documentId, page? }) -> IpcResponse<DocumentFragment[]>
 ```
 
 ## 本地资料库契约（工期 2）
 
-SQLite 数据库位于应用数据目录的 `library.sqlite3`，migration 版本为 `2`，且重复运行不删除数据。工期 2 建立的私有表为：
+SQLite 数据库位于应用数据目录的 `library.sqlite3`，当前 migration 版本为 `4`，且重复运行不删除数据。工期 2 建立的私有表为：
 
 ```text
 source_roots(id, kind, canonical_path, display_name, created_at_ms, active)
@@ -147,7 +155,7 @@ scan_jobs(id, source_root_id, state, scanned_count, changed_count, failed_count,
 scan_events(id, scan_job_id, document_id?, kind, occurred_at_ms, details_json)
 ```
 
-- `SourceKind` 是 `directory|single_file`；文件格式记录 DOCX/PPTX/XLSX、PDF、Markdown/TXT/CSV 和常见图片，但正文提取始终处于 `contentState: "pending"`。
+- `SourceKind` 是 `directory|single_file`；文件格式记录 DOCX/PPTX/XLSX、PDF、Markdown/TXT/CSV 和常见图片。扫描器只登记元数据并将正文置为 `contentState: "pending"`，工期 5 OCR 通过页片段接口填充图片/PDF 内容。
 - 扫描前 canonicalize 来源和候选路径，仅扫描授权目录或单文件。隐藏目录、系统目录、回收站、`node_modules`、符号链接/Junction/reparse point 默认跳过，且跳过原因写入 `ScanEvent`。
 - 每个可登记文件保存大小、修改时间、`file-id` 的 Windows File ID（可用时）和 SHA-256。重命名先以 File ID 追踪；File ID 不可用时，仅在唯一失效路径匹配 SHA-256 时作为辅助重定位，避免合并同内容的真实重复文件。
 - `ScanEvent.kind` 为 `discovered|updated|renamed|missing|skipped|error`。运行中的任务在重新打开数据库时转为 `paused`；任务支持 `queued|running|paused|cancelled|failed|completed` 和重试计数。
@@ -158,12 +166,22 @@ scan_events(id, scan_job_id, document_id?, kind, occurred_at_ms, details_json)
 ### 搜索与资料组织契约（工期 3）
 
 - migration v2 新增 `collections`、`tags`、`document_collections`、`document_tags`、`document_usage`、`document_search_state`、`document_search_content` 和 `document_fts`。集合与标签只用 `DocumentId` 多对多引用，绝不移动、复制或更改原文件路径。
-- `document_fts` 是 SQLite FTS5 `trigram` 索引，字段为 `title`、`body`、`path`、`tags` 和 `ocr`；正文和 OCR 是预留内容字段，当前扫描器不做提取或 OCR。三字及以上查询使用 FTS5 中文子串匹配；一至两字查询以标题、路径和标签 `LIKE` 回退。
+- `document_fts` 是 SQLite FTS5 `trigram` 索引，字段为 `title`、`body`、`path`、`tags` 和 `ocr`；扫描器不做正文提取，OCR worker 增量填充 `ocr`。三字及以上查询使用 FTS5 中文子串匹配；一至两字查询以标题、路径和标签 `LIKE` 回退。
 - `library_search({ text?, formats?, modifiedAfterMs?, modifiedBeforeMs?, sourceRootIds?, collectionId?, tagIds?, statuses?, favoriteOnly?, recentOnly?, limit?, offset? }) -> IpcResponse<SearchResults>` 是稳定查询 API。结果使用 `DocumentId`，包含展示元数据、匹配片段、标签、集合、收藏状态和 `SourceLocator`；绝对路径不是主键，UI 仅显示路径尾部。
 - FTS `bm25` 权重固定为标题 `12`、正文 `1`、路径 `4`、标签 `3`、OCR `1`。过滤条件均为 AND 组合；收藏和最近使用来自 `document_usage`，最近使用以选择结果时的时间戳排序。
-- `SourceLocator` 当前总是 `available: false`，并给出中文未实现原因；工期 4 的查看器可补充页码、幻灯片或段落值，但不得移除或重命名该结构。
+- `SourceLocator` 对未处理文档仍为 `available: false` 并给出中文降级原因；OCR/text-layer 页片段可返回 `page` 和可选 `boundingBox`，不得移除或重命名既有字段。
 - 搜索相关 IPC 还包括 `library_list_sources`、`library_list_collections`、`library_list_tags`、`library_create_collection`、`library_create_tag`、`library_set_collection_membership`、`library_set_tag_membership`、`library_set_favorite`、`library_record_recent_use` 和 `library_rebuild_search_index`；全部沿用既有成功/失败信封。
 - 扫描器是唯一文件/元数据入口。每个文档元数据 upsert 后尝试刷新索引，索引状态独立保存在 `document_search_state`；索引写入失败不会回滚或删除 `Document` 元数据，`library_rebuild_search_index` 可从已登记数据重建。
+
+### OCR 与页片段契约（工期 5）
+
+- migration v4 新增 `ocr_jobs`、`ocr_pages`、`ocr_text_boxes` 和 `ocr_metrics`，全部以既有 `DocumentId` 外键关联；OCR 不得创建平行文档主表或绕过资料库访问路径。
+- `ocr_jobs` 复用任务状态 `queued|running|paused|cancelled|failed|completed`、重试计数和独立 SQLite worker。重开时 `running -> paused`，暂停/取消在页边界生效，按文档重新执行创建新的 OCR 任务。
+- PDF 先用 `lopdf` 本地提取有效文本层；任何有效文本层 PDF 保存 `text_layer` 页片段并跳过 OCR。无文本层 PDF 仅用本机 `pdftoppm` 生成临时页图；PNG/JPG/JPEG/TIFF/BMP 直接逐页处理。原文件绝不修改。
+- OCR 结果写入 `DocumentFragment { documentId, page, source: ocr|text_layer|blank, text, confidence?, width, height, rotationDegrees, boxes, sourceLocator }`。`boxes[].boundingBox.points` 是原始页像素坐标；`SourceLocator` 只增加可选 `boundingBox`，未改名/移除前期字段。
+- 所有页文本增量汇总到既有 `document_search_content.ocr` 并刷新 `document_fts`；搜索 OCR 命中优先给出命中文本框的页和坐标。
+- PP-OCRv6 Tiny / ONNX Runtime CPU 只能从应用数据目录旁 `ocr-models/` 读取，本应用不自动下载模型。模型布局、版本、人工离线取得及未验证模型的性能限制见 `docs/ocr-models.md`。
+- 工期 6 唯一允许读取的正文接口是 `library_document_fragments({ documentId, page? })`；不得访问 `ocr_*` 私有表、canonical path 或临时页图。
 
 ## EditorAdapter 契约（工期 1）
 
