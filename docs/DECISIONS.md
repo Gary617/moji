@@ -187,3 +187,33 @@
 - 决策：所有 AI 写回调用既有 `document_save`，沿用写前 Snapshot、SHA-256 外部修改检测、临时文件/备份和恢复；每次工具请求、拒绝、应用或错误写入 v5 `ai_actions`，细节只含稳定码和受控标识。
 - 理由：不复制另一套写回逻辑，保持源文件保护和可追溯审阅。
 - 边界：审计保留期限和防篡改存储未在本工期实现。
+
+## D-026 本地数据库密钥由 DPAPI 保护，生产必须启用 SQLCipher
+
+- 日期：2026-08-19
+- 状态：已接受；发布前置
+- 决策：数据库使用 SQLCipher `PRAGMA key`，32 字节随机密钥只以 Windows DPAPI 密文保存为 `library.sqlite3.key`。启动若检测不到 `PRAGMA cipher_version` 直接返回 `MIGRATION_FAILED`，不回退到明文 SQLite；OCR 页片段、搜索缓存和 Snapshot 随数据库一起受保护。
+- 理由：应用数据目录可能被本机其他进程复制；把密钥放配置文件、日志或数据库都会使静态窃取失去保护。
+- 发布影响：初始 SQLCipher 构建因缺 `OPENSSL_DIR` 失败；工期 8 已改用 vendored OpenSSL，当前构建改为在缺 Perl 时失败。必须在具备 Perl、MSVC 和 NSIS 的 Windows 构建机完成桌面构建和加密烟测后才允许发布验收。
+
+## D-027 写回前重复授权并采用原子替换
+
+- 日期：2026-08-19
+- 状态：已接受
+- 决策：每次打开、保存、恢复都重新解析 SourceRoot，拒绝 symlink/Junction/reparse point 和非普通文件；写回使用同目录 `create_new` 临时文件、flush、Windows `MoveFileExW(REPLACE_EXISTING|WRITE_THROUGH)`，失败以备份原子恢复，Snapshot 保留最近 20 条。
+- 理由：仅在扫描时授权无法覆盖外部替换和 TOCTOU；原子目录项替换避免 `fs::write` 跟随被替换的符号链接。
+
+## D-028 不可信 AI 上下文使用结构化转义并要求目标授权
+
+- 日期：2026-08-19
+- 状态：已接受
+- 决策：文档 ID、显示名和正文在 `<untrusted_text>` 边界内转义，工具调用必须指向当前显式上下文；autonomous 额外要求会话 `authorizedDocumentIds`，目标缺失时拒绝。
+- 理由：仅靠提示词声明无法防止正文闭合标签或模型请求未选文档；权限检查必须在 Rust 工具边界重复执行。
+
+## D-029 发布候选使用 vendored SQLCipher 和当前用户 NSIS 安装
+
+- 日期：2026-08-19
+- 状态：已接受；待构建机验证
+- 决策：生产 `secure-db` feature 使用 `rusqlite/bundled-sqlcipher-vendored-openssl`，将 OpenSSL 构建纳入 Cargo 依赖；Tauri 发布包使用 NSIS `currentUser` 安装模式。卸载不主动删除 `%LOCALAPPDATA%\\com.moji.desktop` 用户数据，数据删除由用户在应用外明确执行。
+- 理由：生产不能回退到明文 SQLite；当前用户安装避免不必要的管理员权限，并让升级/卸载与应用数据生命周期分离。
+- 边界：Windows 构建仍需要 MSVC、NSIS 和 vendored OpenSSL 的 Perl/构建前置；Windows 10/11 安装、升级、卸载和迁移尚未在本机完成验证。

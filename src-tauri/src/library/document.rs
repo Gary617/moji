@@ -1,8 +1,15 @@
-use std::{fs, io::Write, path::PathBuf};
+use std::{
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use sha2::{Digest, Sha256};
 
+use super::policy::{
+    authorize_candidate, authorize_source, canonical_path_string, exclusion_reason,
+};
 use super::{
     model::{
         AnnotationAnchor, AnnotationRecord, DocumentCapabilities, DocumentId, DocumentMode,
@@ -33,14 +40,14 @@ impl LibraryService {
                 "document is not currently available",
             ));
         }
-        let path = PathBuf::from(&document.canonical_path);
+        let path = self.authorized_document_path(&document)?;
         let bytes = fs::read(&path).map_err(|error| {
             LibraryError::new(
                 LibraryErrorCode::DocumentReadFailed,
                 "document could not be read",
             )
             .retryable()
-            .with_details(serde_json::json!({ "source": error.to_string() }))
+            .with_details(serde_json::json!({ "kind": format!("{:?}", error.kind()) }))
         })?;
         let current_hash = sha256(&bytes);
         let is_text = matches!(document.format.as_str(), "markdown" | "text" | "csv");
@@ -99,7 +106,7 @@ impl LibraryService {
                 "this format cannot be written by the text adapter",
             ));
         }
-        let path = PathBuf::from(&document.canonical_path);
+        let path = self.authorized_document_path(&document)?;
         let original = fs::read(&path).map_err(|error| {
             io_error(
                 LibraryErrorCode::DocumentReadFailed,
@@ -183,7 +190,8 @@ impl LibraryService {
         expected_sha256: &str,
     ) -> LibraryResult<DocumentSaveResult> {
         let document = self.document(document_id)?;
-        let current = fs::read(&document.canonical_path).map_err(|error| {
+        let path = self.authorized_document_path(&document)?;
+        let current = fs::read(&path).map_err(|error| {
             io_error(
                 LibraryErrorCode::DocumentReadFailed,
                 "document could not be read",
@@ -216,17 +224,10 @@ impl LibraryService {
                 )
                 .retryable()
             })?;
-        let temp_path = PathBuf::from(&document.canonical_path)
-            .with_extension(format!("restore-{}.moji-tmp", before.id));
-        let backup_path = PathBuf::from(&document.canonical_path)
-            .with_extension(format!("restore-{}.moji-backup", before.id));
-        write_with_recovery(
-            PathBuf::from(&document.canonical_path).as_path(),
-            &temp_path,
-            &backup_path,
-            &content,
-        )?;
-        let modified_at_ms = fs::metadata(&document.canonical_path)
+        let temp_path = path.with_extension(format!("restore-{}.moji-tmp", before.id));
+        let backup_path = path.with_extension(format!("restore-{}.moji-backup", before.id));
+        write_with_recovery(&path, &temp_path, &backup_path, &content)?;
+        let modified_at_ms = fs::metadata(&path)
             .and_then(|metadata| metadata.modified())
             .ok()
             .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
@@ -251,6 +252,41 @@ impl LibraryService {
         self.database.document_by_id(document_id)?.ok_or_else(|| {
             LibraryError::new(LibraryErrorCode::DocumentNotFound, "document was not found")
         })
+    }
+
+    fn authorized_document_path(&self, document: &DocumentRecord) -> LibraryResult<PathBuf> {
+        let source = self
+            .database
+            .source_by_id(&document.source_root_id)?
+            .ok_or_else(|| {
+                LibraryError::new(
+                    LibraryErrorCode::UnauthorizedPath,
+                    "document source is no longer authorized",
+                )
+            })?;
+        let authorized_source = authorize_source(&source.canonical_path)?;
+        let path = authorize_candidate(&authorized_source, &document.canonical_path)?;
+        let recorded_path = fs::canonicalize(&document.canonical_path)
+            .unwrap_or_else(|_| PathBuf::from(&document.canonical_path));
+        if canonical_path_string(&path) != canonical_path_string(&recorded_path) {
+            return Err(LibraryError::new(
+                LibraryErrorCode::UnauthorizedPath,
+                "document path no longer matches the authorized record",
+            ));
+        }
+        let metadata = fs::metadata(&path).map_err(|_| {
+            LibraryError::new(
+                LibraryErrorCode::DocumentNotFound,
+                "document is not currently available",
+            )
+        })?;
+        if !metadata.is_file() {
+            return Err(LibraryError::new(
+                LibraryErrorCode::UnauthorizedPath,
+                "document target is not a regular file",
+            ));
+        }
+        Ok(path)
     }
 
     pub(crate) fn snapshots(&self, document_id: &DocumentId) -> LibraryResult<Vec<SnapshotRecord>> {
@@ -368,13 +404,25 @@ fn write_with_recovery(
     bytes: &[u8],
 ) -> LibraryResult<()> {
     let result = (|| {
-        let mut file = fs::File::create(temp).map_err(|error| {
+        assert_regular_target(path)?;
+        let original = fs::read(path).map_err(|error| {
             io_error(
                 LibraryErrorCode::DocumentWriteFailed,
-                "temporary document could not be created",
+                "document backup could not be read",
                 error,
             )
         })?;
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(temp)
+            .map_err(|error| {
+                io_error(
+                    LibraryErrorCode::DocumentWriteFailed,
+                    "temporary document could not be created",
+                    error,
+                )
+            })?;
         file.write_all(bytes).map_err(|error| {
             io_error(
                 LibraryErrorCode::DocumentWriteFailed,
@@ -389,30 +437,100 @@ fn write_with_recovery(
                 error,
             )
         })?;
-        fs::copy(path, backup).map_err(|error| {
+        let mut backup_file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(backup)
+            .map_err(|error| {
+                io_error(
+                    LibraryErrorCode::DocumentWriteFailed,
+                    "document backup could not be created",
+                    error,
+                )
+            })?;
+        backup_file.write_all(&original).map_err(|error| {
             io_error(
                 LibraryErrorCode::DocumentWriteFailed,
-                "document backup could not be created",
+                "document backup could not be written",
                 error,
             )
         })?;
-        fs::write(path, bytes).map_err(|error| {
+        backup_file.sync_all().map_err(|error| {
+            io_error(
+                LibraryErrorCode::DocumentWriteFailed,
+                "document backup could not be flushed",
+                error,
+            )
+        })?;
+        assert_regular_target(path)?;
+        atomic_replace(path, temp).map_err(|error| {
             io_error(
                 LibraryErrorCode::DocumentWriteFailed,
                 "document could not be replaced",
                 error,
             )
         })?;
-        fs::remove_file(temp).ok();
+        assert_regular_target(path)?;
         fs::remove_file(backup).ok();
         Ok(())
     })();
     if result.is_err() {
         if backup.exists() {
-            let _ = fs::copy(backup, path);
+            let _ = atomic_replace(path, backup);
         }
     }
     result
+}
+
+fn assert_regular_target(path: &Path) -> LibraryResult<()> {
+    let metadata = fs::symlink_metadata(path).map_err(|_| {
+        LibraryError::new(
+            LibraryErrorCode::UnauthorizedPath,
+            "document target is unavailable",
+        )
+    })?;
+    if exclusion_reason(path, &metadata).is_some() || !metadata.is_file() {
+        return Err(LibraryError::new(
+            LibraryErrorCode::UnauthorizedPath,
+            "document target is not a regular authorized file",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn atomic_replace(path: &Path, temp: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+    };
+    let source = temp
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let target = path
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let ok = unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            target.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if ok == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+fn atomic_replace(path: &Path, temp: &Path) -> std::io::Result<()> {
+    fs::rename(temp, path)
 }
 
 #[cfg(test)]

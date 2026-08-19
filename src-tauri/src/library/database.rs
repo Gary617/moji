@@ -15,6 +15,7 @@ use super::model::{
     SourceKind, SourceLocator, SourceRegistration, SourceRootId, SourceRootRecord, TagId,
     TagRecord, new_identifier, now_unix_ms,
 };
+use crate::crypto::load_or_create_database_key;
 
 pub(crate) struct LibraryDatabase {
     connection: Connection,
@@ -22,7 +23,46 @@ pub(crate) struct LibraryDatabase {
 
 impl LibraryDatabase {
     pub(crate) fn open(path: impl AsRef<Path>) -> LibraryResult<Self> {
+        let path = path.as_ref();
+        let key = load_or_create_database_key(path).map_err(|_| {
+            LibraryError::new(
+                LibraryErrorCode::MigrationFailed,
+                "encrypted library database key is unavailable",
+            )
+        })?;
         let connection = Connection::open(path).map_err(database_error)?;
+        let key_hex = key
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        connection
+            .execute_batch(&format!(
+                "PRAGMA key = \"x'{key_hex}'\"; PRAGMA cipher_compatibility = 4; PRAGMA cipher_memory_security = ON;"
+            ))
+            .map_err(|_| {
+                LibraryError::new(
+                    LibraryErrorCode::MigrationFailed,
+                    "encrypted library database could not be opened",
+                )
+            })?;
+        #[cfg(not(test))]
+        {
+            let cipher_version: Option<String> = connection
+                .query_row("PRAGMA cipher_version", [], |row| row.get(0))
+                .optional()
+                .map_err(|_| {
+                    LibraryError::new(
+                        LibraryErrorCode::MigrationFailed,
+                        "encrypted library database could not be verified",
+                    )
+                })?;
+            if cipher_version.is_none() {
+                return Err(LibraryError::new(
+                    LibraryErrorCode::MigrationFailed,
+                    "SQLCipher support is required for the local library database",
+                ));
+            }
+        }
         connection
             .busy_timeout(Duration::from_secs(5))
             .map_err(database_error)?;
@@ -1108,6 +1148,13 @@ impl LibraryDatabase {
                 params![snapshot.id, snapshot.document_id.0, snapshot.original_sha256, content, snapshot.created_at_ms],
             )
             .map_err(database_error)?;
+        // Keep a bounded recovery history so repeated saves cannot exhaust the local disk.
+        self.connection
+            .execute(
+                "DELETE FROM document_snapshots WHERE document_id = ?1 AND id NOT IN (SELECT id FROM document_snapshots WHERE document_id = ?1 ORDER BY created_at_ms DESC, rowid DESC LIMIT 20)",
+                params![snapshot.document_id.0],
+            )
+            .map_err(database_error)?;
         Ok(snapshot)
     }
 
@@ -1140,7 +1187,7 @@ impl LibraryDatabase {
     ) -> LibraryResult<Vec<SnapshotRecord>> {
         let mut statement = self
             .connection
-            .prepare("SELECT id, document_id, original_sha256, length(content), created_at_ms FROM document_snapshots WHERE document_id = ?1 ORDER BY created_at_ms DESC")
+            .prepare("SELECT id, document_id, original_sha256, length(content), created_at_ms FROM document_snapshots WHERE document_id = ?1 ORDER BY created_at_ms DESC, rowid DESC")
             .map_err(database_error)?;
         let rows = statement
             .query_map(params![document_id.0], |row| {
@@ -1916,13 +1963,13 @@ fn ocr_job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<OcrJobRecord> {
     })
 }
 
-fn database_error(error: rusqlite::Error) -> LibraryError {
+fn database_error(_error: rusqlite::Error) -> LibraryError {
     LibraryError::new(
         LibraryErrorCode::DatabaseFailed,
         "local library database operation failed",
     )
     .retryable()
-    .with_details(serde_json::json!({ "source": error.to_string() }))
+    .with_details(serde_json::json!({ "kind": "sqlite" }))
 }
 
 fn sqlite_int(value: u64) -> i64 {
@@ -2203,6 +2250,33 @@ mod tests {
             .update_ocr_job(&job.id, ScanJobState::Completed, 2, 2, 0, 0, None, Some(25))
             .expect("job should complete");
         assert_eq!(completed.duration_ms, Some(25));
+    }
+
+    #[test]
+    fn bounds_snapshot_history_to_the_recovery_retention_limit() {
+        let mut database = LibraryDatabase::in_memory().expect("database should open");
+        let document_id = insert_document(
+            &mut database,
+            "doc-snapshot-retention",
+            "notes.txt",
+            DocumentFormat::Text,
+        );
+        for index in 0..25 {
+            database
+                .create_snapshot(
+                    &document_id,
+                    &format!("hash-{index}"),
+                    format!("v{index}").as_bytes(),
+                )
+                .expect("snapshot should be stored");
+        }
+        let snapshots = database.snapshots_for_document(&document_id).unwrap();
+        assert_eq!(snapshots.len(), 20);
+        assert!(
+            snapshots
+                .iter()
+                .any(|snapshot| snapshot.original_sha256 == "hash-24")
+        );
     }
 
     #[test]

@@ -391,7 +391,7 @@ impl LibraryService {
                 "file metadata could not be read",
             )
             .retryable()
-            .with_details(json!({ "source": error.to_string() }))
+            .with_details(json!({ "kind": format!("{:?}", error.kind()) }))
         })?;
         let hash = hash_file(&path)?;
         let identity = get_file_id(&path).ok().map(|value| format!("{value:?}"));
@@ -502,19 +502,19 @@ fn walk_directory(
             "directory could not be read",
         )
         .retryable()
-        .with_details(json!({ "source": error.to_string() }))
+        .with_details(json!({ "kind": format!("{:?}", error.kind()) }))
     })?;
     for entry in entries {
         let entry = match entry {
             Ok(entry) => entry,
-            Err(error) => {
+            Err(_error) => {
                 events.push(ScanEvent {
                     id: -1,
                     scan_job_id: scan_job_id.clone(),
                     document_id: None,
                     kind: ScanEventKind::Error,
                     occurred_at_ms: now_unix_ms(),
-                    details: json!({ "code": "DIRECTORY_ENTRY_FAILED", "message": error.to_string() }),
+                    details: json!({ "code": "DIRECTORY_ENTRY_FAILED" }),
                 });
                 continue;
             }
@@ -522,14 +522,14 @@ fn walk_directory(
         let child = entry.path();
         let metadata = match fs::symlink_metadata(&child) {
             Ok(metadata) => metadata,
-            Err(error) => {
+            Err(_error) => {
                 events.push(ScanEvent {
                     id: -1,
                     scan_job_id: scan_job_id.clone(),
                     document_id: None,
                     kind: ScanEventKind::Error,
                     occurred_at_ms: now_unix_ms(),
-                    details: json!({ "displayName": child.file_name().and_then(|name| name.to_str()).unwrap_or("entry"), "code": "METADATA_READ_FAILED", "message": error.to_string() }),
+                    details: json!({ "displayName": child.file_name().and_then(|name| name.to_str()).unwrap_or("entry"), "code": "METADATA_READ_FAILED" }),
                 });
                 continue;
             }
@@ -591,7 +591,7 @@ fn hash_read_error(error: std::io::Error) -> LibraryError {
     };
     LibraryError::new(code, "file content could not be read for hashing")
         .retryable()
-        .with_details(json!({ "source": error.to_string() }))
+        .with_details(json!({ "kind": format!("{:?}", error.kind()) }))
 }
 
 #[cfg(test)]

@@ -1,4 +1,5 @@
 mod ai;
+mod crypto;
 mod ipc;
 mod library;
 mod logging;

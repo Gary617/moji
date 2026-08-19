@@ -85,3 +85,34 @@
 | 前端 AI IPC | ContextPreview、流式事件、权限/授权目标请求形状，传输异常脱敏 | `pnpm test` | PASS：17/17 |
 | 前端生产构建 | AI IPC/助手面板类型检查 + Vite production | `pnpm build` | PASS：1811 modules transformed |
 | 真实 OpenAI API | Windows Credential Manager Key、SSE 文本/工具事件、手工取消 | 受控桌面环境手工冒烟 | NOT RUN：无批准 Key；不影响 Mock 结论 |
+
+## 工期 7 安全、冲突恢复与可靠性
+
+| 层级 | 样本/目标 | 命令 | 结果 |
+| --- | --- | --- | --- |
+| DPAPI 密钥 | 32 字节数据库密钥保护/解保护，密文不等于明文 | `pnpm test:rust` | PASS：Windows DPAPI round-trip |
+| 数据库加密门禁 | SQLCipher `cipher_version` 缺失时阻断启动，不回退明文 | 阶段 7 `pnpm test:rust` / `pnpm build:desktop` | BLOCKED（历史）：初始构建缺 `OPENSSL_DIR`；工期 8 改用 vendored OpenSSL 后仍须验证 Perl 构建前置 |
+| 路径授权 | `..` 兄弟路径、文件 symlink、Junction/reparse、外部替换 | `pnpm test:rust` | PASS：canonical/source 重验和 symlink 回归 |
+| 写回恢复 | 锁定/外部修改、临时文件 create_new、原子替换、备份恢复、Snapshot 留存 | `pnpm test:rust` | PASS：冲突不覆盖；43 Rust tests 全部通过；Snapshot 上限 20 |
+| 提示注入 | 正文尝试闭合不可信标签、提升权限、调用禁止工具、读取未选目标 | `pnpm test:rust` | PASS：转义、目标授权和禁止工具拒绝 |
+| CSP/资源边界 | 远程脚本、导航、frame/object/form、非 IPC connect | 静态审计 `src-tauri/tauri.conf.json` | PASS：self/ipc/`http://ipc.localhost` 白名单 |
+| 秘密/日志扫描 | API Key、绝对路径、正文不得出现在日志/错误/审计细节 | `rg -n "sk-|api.?key|canonical_path|content" src-tauri/src/logging.rs src-tauri/src/ai src-tauri/src/ipc` | PASS：仅稳定码/受控 ID |
+| 依赖许可证 | Node/Rust direct dependency license and version inventory | `THIRD_PARTY_NOTICES.md` + lockfiles | PASS：清单已生成；发布前仍需供应链扫描 |
+
+## 工期 8 发布验收
+
+| 发布门 | 目标 | 命令/证据 | 结果 |
+| --- | --- | --- | --- |
+| 安全生产 Rust | SQLCipher + DPAPI 生产 feature | `cargo test --manifest-path src-tauri/Cargo.toml --features secure-db` | FAIL：vendored OpenSSL 构建需要 Perl，当前工作站未安装 |
+| 桌面生产构建 | NSIS `currentUser` 安装包 | `pnpm build:desktop` | FAIL：同一 OpenSSL/Perl 阻断，未生成包 |
+| 安装包校验 | 安装包路径、大小、SHA-256 | 生成 NSIS 后 `Get-FileHash` | NOT TESTED：无安装包 |
+| Windows 10 | 安装、首次启动、升级、migration、卸载、数据保留/删除 | 实机手工 | NOT TESTED |
+| Windows 11 | 安装、首次启动、升级、migration、卸载、数据保留/删除 | 实机手工 | NOT TESTED |
+| 加密烟测 | `cipher_version`、无明文正文/Key、缺 DPAPI key 拒绝打开 | 生产数据库 + 十六进制/恢复演练 | NOT TESTED |
+| 完整桌面 E2E | 授权目录 -> 扫描 -> 搜索 -> 打开 -> 编辑/批注 -> Snapshot -> OCR -> AI -> 冲突 -> 恢复 | Windows Tauri 实机 | NOT TESTED |
+| 视口/DPI/键盘 | 1366x768、1920x1080、125%、150%、键盘导航和状态 | Windows Tauri 实机 | NOT TESTED |
+| 崩溃恢复 | 任务暂停、临时文件/备份残留、恢复命令 | Windows 实机演练 | NOT TESTED |
+| 真实 AI | Credential Manager、SSE、取消/限流/断网 | 受控 Key 手工冒烟 | NOT TESTED |
+| 发布性能 | 冷/热启动、扫描吞吐、大文件/UI 影响 | release 安装包 | NOT TESTED；仅有历史小样本基线 |
+
+工期 8 的完整证据与阻断说明见 `docs/release/TEST_REPORT-0.1.0-rc.1.md`。

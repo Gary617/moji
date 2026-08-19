@@ -15,8 +15,8 @@
     "test:editor-poc": "node --experimental-strip-types scripts/run-editor-poc.ts",
     "generate:office-fixtures": "node scripts/generate-office-fixtures.mjs",
     "test:watch": "vitest",
-    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
-    "build:desktop": "tauri build --no-bundle",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --no-default-features",
+    "build:desktop": "tauri build --features secure-db",
     "tauri": "tauri"
   },
   "dependencies": {

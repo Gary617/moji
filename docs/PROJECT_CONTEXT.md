@@ -76,9 +76,9 @@ pnpm tauri dev
 
 - `pnpm install --frozen-lockfile`：只按锁文件安装依赖。
 - `pnpm test`：运行前端单元测试。
-- `pnpm test:rust`：运行 Rust 单元测试。
+- `pnpm test:rust`：以 `--no-default-features` 运行 Rust 单元测试；生产默认启用 `secure-db` SQLCipher feature。
 - `pnpm build`：执行 TypeScript 类型检查和前端生产构建。
-- `pnpm build:desktop`：执行前端生产构建并生成不打安装包的 Tauri release 可执行文件。
+- `pnpm build:desktop`：执行前端生产构建、以 vendored OpenSSL 的 `secure-db` feature 生成 NSIS 安装包；缺少 SQLCipher/Perl/MSVC/NSIS 构建依赖时必须失败，不得回退到明文 SQLite。
 - `pnpm generate:office-fixtures`：生成 24 个确定性 DOCX/PPTX/XLSX OOXML POC 夹具，不代表编辑器通过。
 - `pnpm test:editor-poc`：在临时目录执行注入 `ZetaOfficeRuntime` 的 EditorAdapter round-trip；没有 Node runtime bridge 时必须返回 `BLOCKED`，不得用 mock 代替。Node 报告默认写入 `docs/editor-poc/results.node.{json,md}`，不覆盖浏览器真实证据。
 - 浏览器真实 POC：启动 `pnpm dev`，打开 `http://127.0.0.1:1420/editor-poc/index.html`，等待官方 CDN runtime ready，点击 `Run 24-sample matrix`；页面执行真实 `Module.zetajs` worker 回环，结果写入 `docs/editor-poc/results.{json,md}`。
@@ -216,6 +216,20 @@ close(handle) -> EditorResult<null>
 ```
 
 `EditorResult` 使用 `status: success|error`、`outcome: PASS|DEGRADED|FAIL`；失败包含稳定 `EditorError.code`、`retryable`、脱敏 `details` 和 `read-only-preview` 回退。`ZetaOfficeAdapter` 的 runtime bridge 是唯一允许接触 `Module.zetajs`、UNO 对象、打开/保存内部 API 的位置；`MockEditorAdapter` 仅用于契约测试，不能作为 POC 证据。`saveAs` 在 Windows 大小写不敏感路径归一化后拒绝覆盖源文件。
+
+### 安全不变量与恢复命令（工期 7）
+
+- 应用数据目录的数据库密钥只以 DPAPI 密文保存为 `library.sqlite3.key`；API Key 只来自 Credential Manager，禁止进入前端、日志、数据库和错误详情。OCR 页片段与 Snapshot 仍只能通过资料库契约访问。
+- 生产启动必须通过 `PRAGMA cipher_version` 检查；没有 SQLCipher 时返回 `MIGRATION_FAILED` 并阻断启动，不回退到明文 SQLite。恢复密钥/数据库前先备份整个应用数据目录，禁止复制明文数据库到临时目录。
+- 文档写回流程为：重新授权与 reparse 检查 -> 读取并比对 SHA-256 -> 数据库 Snapshot -> 同目录临时文件 `create_new` + `fsync` -> Windows `MoveFileExW(REPLACE_EXISTING|WRITE_THROUGH)` -> 重读校验；失败时使用备份原子恢复。保留最近 20 条 Snapshot。
+- 崩溃/断电后：扫描和 OCR 的 `running` 任务在正常数据库重开时转 `paused`；写回残留 `.moji-tmp/.moji-backup` 需人工/恢复命令清理前先比较哈希。发布验收命令：`$env:PATH='C:\Users\Gary\.cargo\bin;'+$env:PATH; pnpm test; pnpm test:rust; pnpm build; pnpm build:desktop`。
+- WebView2 CSP 禁止远程脚本、frame、object、form 和导航；仅允许应用资源、`ipc:`、`http://ipc.localhost`。
+
+### 工期 8 发布验收
+
+- 发布分支为 `codex/phase-08-release`；发布说明、用户指南、已知限制和测试报告位于 `docs/release/`，阶段交接位于 `docs/handoffs/phase-08.md`。
+- Tauri 发布配置使用 NSIS `currentUser` 安装模式，预期卸载不删除 `%LOCALAPPDATA%\\com.moji.desktop`；安装、升级、卸载和迁移必须在 Windows 10/11 实机重新取证。
+- 当前候选结论为“不可发布”：secure-db 构建在 `openssl-src` 找不到 Perl 时失败，尚无安装包、校验值或生产 SQLCipher 烟测证据。
 
 浏览器 POC 的实现位于 `public/editor-poc/`：`zetaHelper.js`/`zeta.js` 仅作为 `zetajs@1.2.0` 的运行时封装，`office_thread.js` 在内部处理 Writer/Impress/Calc 的 UNO 对象。页面只向主线程返回结构化回环结果；业务代码不得依赖这些内部对象。真实结果和每个样本的源/输出哈希在 `docs/editor-poc/results.json`。
 

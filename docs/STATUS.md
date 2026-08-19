@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-工期 6：AI 对话、@文档上下文与三级权限（代码实现完成；真实 API 仅待手工冒烟）
+工期 8：端到端验收、性能与 Windows 发布（发布候选已整理；当前不可发布）
 
 ## 已完成
 
@@ -29,6 +29,10 @@
 - 已完成 `@文档(id)`/`@文档:id`/`@doc:id` 解析、上下文来源/规模/预计 token/权限预览和 `<untrusted_text>` 边界；没有明确 Document ID 或页片段时不会隐式读取全文。
 - 已完成 `suggest|assist|autonomous` 三级权限、只读/建议/写入/禁止工具白名单、授权目标校验和 `AiAction` 审计。建议模式不写入；协助修改要求用户接受；自主修改仅作用于会话授权目标，并复用 Snapshot、哈希冲突和恢复流程。
 - 已完成前端 AI IPC 适配与 Mock 自动化测试；错误消息只返回稳定码，不含 Key、绝对路径或正文。
+- 已加入 Windows DPAPI 保护的数据库密钥侧车文件、运行时 SQLCipher 能力门禁、原子写回和 20 条快照留存上限；密钥生成/DPAPI 回环有 Windows 测试。
+- 文档读写/恢复会重新验证授权来源、canonical path、普通文件类型及 reparse point；符号链接回归测试通过。
+- AI 上下文对文档 ID、显示名和正文做结构化转义；工具调用必须来自显式上下文，autonomous 还必须在会话授权清单中；提示注入回归测试通过。
+- WebView2 CSP 收紧为无远程脚本/导航、无 frame/object/form，资源和连接仅限本地应用协议；许可证清单和阶段威胁模型已更新。
 
 ## 当前边界与风险
 
@@ -56,3 +60,18 @@ Office/PDF 业务 UI、编辑器写回、账号、云同步、正式版本库和
 ## 下一条命令
 
 工期 7 优先审计：提示注入与工具参数模糊化、会话授权生命周期和撤销、SSE 重连/重复事件、Credential Manager ACL/轮换、审计防篡改与留存、上下文 token 上限及大文档分段、真实桌面流式取消，以及未授权目标/外部修改并发竞态。继续以 `library_document_fragments({ documentId, page? })` 读取正文，不得读取 OCR 私有表、路径或临时页图，也不得改变 FTS、Document ID 或源文件不移动不复制不覆盖不变量。
+
+## 工期 7 结果
+
+- 高风险关闭证据：DPAPI 密钥保护、SQLCipher 运行时门禁、路径/reparse 校验、原子写回、快照清理、AI 工具目标授权、提示注入转义和 CSP 均有实现与回归测试。
+- 发布阻断（阶段 7 历史）：本机缺少 OpenSSL 开发环境（`OPENSSL_DIR`），无法编译初始 `rusqlite` SQLCipher native 依赖；生产代码在 `PRAGMA cipher_version` 缺失时拒绝打开数据库，禁止以明文 SQLite 发布。工期 8 已切换 vendored OpenSSL，当前阻断见下文的 Perl 前置。
+- 43 个 Rust 单测、17 个前端单测和 `pnpm build` 已通过；Node 版本仍为 24.13.0，产生 engine warning。
+
+## 工期 8 结果
+
+- 已创建 `codex/phase-08-release`，冻结阶段 0-7 稳定接口。
+- 已将生产 secure-db feature 改为 vendored OpenSSL，并把 Tauri 发布目标改为 NSIS `currentUser`；未改变 schema、IPC、权限或恢复协议。
+- `pnpm test` 17/17 PASS、`pnpm test:rust` 43/43 PASS（no-default-features）、`pnpm build` PASS、格式检查 PASS。
+- `cargo test --features secure-db` 和 `pnpm build:desktop` FAIL：vendored OpenSSL 在 Windows 构建时缺少 Perl；没有生成安装包或校验值。
+- Windows 10/11 安装/升级/卸载/migration/回滚、SQLCipher 数据库烟测、DPI/键盘/真实 WebView2/真实 AI 和完整桌面端到端路径均为 NOT TESTED。
+- 发布结论：不可发布。下一步必须在具备 Perl、MSVC、NSIS 和 Node 24.15+ 的 Windows 构建机完成生产构建与实机验收。

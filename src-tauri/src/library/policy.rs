@@ -13,6 +13,7 @@ pub(crate) struct AuthorizedSource {
 }
 
 pub(crate) fn authorize_source(input: impl AsRef<Path>) -> LibraryResult<AuthorizedSource> {
+    reject_reparse_path(input.as_ref())?;
     let canonical_path = canonicalize_existing(input.as_ref())?;
     let metadata = fs::symlink_metadata(&canonical_path).map_err(|error| {
         LibraryError::new(
@@ -20,7 +21,7 @@ pub(crate) fn authorize_source(input: impl AsRef<Path>) -> LibraryResult<Authori
             "source metadata could not be read",
         )
         .retryable()
-        .with_details(serde_json::json!({ "source": error.to_string() }))
+        .with_details(serde_json::json!({ "kind": format!("{:?}", error.kind()) }))
     })?;
     if let Some(reason) = exclusion_reason(&canonical_path, &metadata) {
         return Err(LibraryError::new(
@@ -56,6 +57,7 @@ pub(crate) fn authorize_candidate(
     source: &AuthorizedSource,
     input: impl AsRef<Path>,
 ) -> LibraryResult<PathBuf> {
+    reject_reparse_path(input.as_ref())?;
     let candidate = canonicalize_existing_or_absolute(input.as_ref())?;
     if !is_within(&source.canonical_path, &candidate, source.kind) {
         return Err(LibraryError::new(
@@ -69,7 +71,7 @@ pub(crate) fn authorize_candidate(
             "file metadata could not be read",
         )
         .retryable()
-        .with_details(serde_json::json!({ "source": error.to_string() }))
+        .with_details(serde_json::json!({ "kind": format!("{:?}", error.kind()) }))
     })?;
     if let Some(reason) = exclusion_reason(&candidate, &metadata) {
         return Err(LibraryError::new(
@@ -79,6 +81,27 @@ pub(crate) fn authorize_candidate(
         .with_details(serde_json::json!({ "reason": reason })));
     }
     Ok(candidate)
+}
+
+fn reject_reparse_path(path: &Path) -> LibraryResult<()> {
+    // Check the user-supplied spelling before canonicalization. Checking only the resolved
+    // path loses the evidence that a link/reparse point was used and leaves a TOCTOU gap.
+    let mut current = Some(path);
+    while let Some(item) = current {
+        if let Ok(metadata) = fs::symlink_metadata(item) {
+            if let Some(reason) = exclusion_reason(item, &metadata) {
+                if reason == "symlink" || reason == "junction_or_reparse_point" {
+                    return Err(LibraryError::new(
+                        LibraryErrorCode::ExcludedPath,
+                        "links and reparse points are excluded by default",
+                    )
+                    .with_details(serde_json::json!({ "reason": reason })));
+                }
+            }
+        }
+        current = item.parent();
+    }
+    Ok(())
 }
 
 pub(crate) fn canonical_path_string(path: &Path) -> String {
@@ -163,7 +186,7 @@ fn canonicalize_existing(path: &Path) -> LibraryResult<PathBuf> {
             "source path could not be canonicalized",
         )
         .retryable()
-        .with_details(serde_json::json!({ "source": error.to_string() }))
+        .with_details(serde_json::json!({ "kind": format!("{:?}", error.kind()) }))
     })
 }
 
@@ -177,7 +200,7 @@ fn canonicalize_existing_or_absolute(path: &Path) -> LibraryResult<PathBuf> {
             "path could not be normalized",
         )
         .retryable()
-        .with_details(serde_json::json!({ "source": error.to_string() }))
+        .with_details(serde_json::json!({ "kind": format!("{:?}", error.kind()) }))
     })
 }
 
@@ -274,6 +297,28 @@ mod tests {
             exclusion_reason(&node_modules, &metadata),
             Some("system_or_excluded_directory")
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejects_a_file_symlink_before_canonicalization() {
+        use std::os::windows::fs::symlink_file;
+        let tree = TempTree::new();
+        let source = authorize_source(&tree.0).expect("directory should be authorized");
+        let outside = tree.0.parent().unwrap().join(format!(
+            "{}-outside.txt",
+            tree.0.file_name().unwrap().to_string_lossy()
+        ));
+        fs::write(&outside, "outside").unwrap();
+        let link = tree.0.join("linked.txt");
+        if symlink_file(&outside, &link).is_err() {
+            let _ = fs::remove_file(&outside);
+            return;
+        }
+        let error = authorize_candidate(&source, &link).expect_err("symlink must be rejected");
+        assert_eq!(error.code, "EXCLUDED_PATH");
+        let _ = fs::remove_file(&link);
+        let _ = fs::remove_file(&outside);
     }
 
     #[test]

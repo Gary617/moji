@@ -39,23 +39,23 @@ impl LibraryWatcher {
             },
             Config::default(),
         )
-        .map_err(|error| {
+        .map_err(|_error| {
             LibraryError::new(
                 LibraryErrorCode::WatcherUnavailable,
                 "filesystem watcher could not start",
             )
             .retryable()
-            .with_details(serde_json::json!({ "source": error.to_string() }))
+            .with_details(serde_json::json!({ "kind": "watcher_init" }))
         })?;
         watcher
             .watch(&source.canonical_path, RecursiveMode::Recursive)
-            .map_err(|error| {
+            .map_err(|_error| {
                 LibraryError::new(
                     LibraryErrorCode::WatcherUnavailable,
                     "authorized source could not be watched",
                 )
                 .retryable()
-                .with_details(serde_json::json!({ "source": error.to_string() }))
+                .with_details(serde_json::json!({ "kind": "watcher_watch" }))
             })?;
         Ok(Self {
             _watcher: watcher,

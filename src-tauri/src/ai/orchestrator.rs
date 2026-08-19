@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -114,6 +116,15 @@ pub(crate) fn chat_with_sink<S: super::context::DocumentContextSource>(
     };
     let prepared = context_preview(source, &context_request, request.permission)
         .map_err(|_| AiError::new(AiFailure::Provider))?;
+    let mut context_ids = BTreeSet::new();
+    context_ids.extend(request.document_ids.iter().cloned());
+    context_ids.extend(
+        request
+            .selections
+            .iter()
+            .map(|selection| selection.document_id.clone()),
+    );
+    context_ids.extend(crate::ai::context::parse_document_mentions(&request.prompt));
     let allowed = allowed_tools(request.permission)
         .into_iter()
         .map(str::to_owned)
@@ -131,17 +142,32 @@ pub(crate) fn chat_with_sink<S: super::context::DocumentContextSource>(
         } = &event
         {
             let target = target_document(arguments).map(str::to_owned);
-            let target_authorized = target
-                .as_ref()
-                .map(|id| {
-                    request
-                        .authorized_document_ids
-                        .iter()
-                        .any(|item| item == id)
-                })
-                .unwrap_or(true);
-            if !tool_allowed(request.permission, name) || !target_authorized {
-                let details = json!({ "reason": if !tool_allowed(request.permission, name) { "TOOL_NOT_ALLOWED" } else { "TARGET_NOT_AUTHORIZED" } });
+            let target_authorized = target.as_ref().is_some_and(|id| {
+                context_ids.contains(id)
+                    && (request.permission != AiPermission::Autonomous
+                        || request
+                            .authorized_document_ids
+                            .iter()
+                            .any(|item| item == id))
+            });
+            let target_required = matches!(
+                name.as_str(),
+                "read_document_fragments"
+                    | "propose_edit"
+                    | "create_annotation"
+                    | "apply_document_edit"
+            );
+            let denied_reason = if !tool_allowed(request.permission, name) {
+                Some("TOOL_NOT_ALLOWED")
+            } else if target_required && target.is_none() {
+                Some("TARGET_REQUIRED")
+            } else if target.is_some() && !target_authorized {
+                Some("TARGET_NOT_AUTHORIZED")
+            } else {
+                None
+            };
+            if let Some(reason) = denied_reason {
+                let details = json!({ "reason": reason });
                 let audit_document = target
                     .as_ref()
                     .map(|id| DocumentId(id.clone()))
