@@ -55,7 +55,7 @@
 - React/React DOM `19.2.8`，TypeScript `7.0.2`，Vite `8.2.1`。
 - Vitest `4.1.11`，Testing Library React `16.3.2`，jsdom `30.0.1`。
 - `zetajs` `1.2.0`（MIT，2025-06-11 release；ZetaOffice/LibreOffice UNO browser wrapper）。ZetaOffice 官方站点（2026-08-18）标记为开放 beta，并列出 Windows 64-bit、32-bit 和 ARM64 桌面下载；本仓库不分发其二进制。浏览器 POC 使用官方 CDN `https://cdn.zetaoffice.net/zetaoffice_latest/`，不是把 WASM/data 提交到仓库。
-- `rusqlite` `0.40.2`（`bundled` SQLite）、`file-id` `0.2.3`（Windows File ID）、`notify` `8.2.0`、`lopdf` `0.38.0`、`image` `0.25.9`、`ppocr-rs` `0.7.3`（PP-OCRv6，固定 `ort 2.0.0-rc.9` / ONNX Runtime CPU）、`sha2` `0.11.0`、serde `1.0.229`，serde_json `1.0.151`，tracing `0.1.44`，tracing-subscriber `0.3.23`。
+- `rusqlite` `0.40.2`（`bundled` SQLite）、`file-id` `0.2.3`（Windows File ID）、`notify` `8.2.0`、`lopdf` `0.38.0`、`image` `0.25.9`、`ppocr-rs` `0.7.3`（PP-OCRv6，固定 `ort 2.0.0-rc.9` / ONNX Runtime CPU `1.26.0`）、`sha2` `0.11.0`、serde `1.0.229`，serde_json `1.0.151`，tracing `0.1.44`，tracing-subscriber `0.3.23`。
 
 所有 Node 直接依赖使用精确版本，完整解析结果以 `pnpm-lock.yaml` 为准。所有 Rust 直接依赖使用精确版本，完整解析结果以 `src-tauri/Cargo.lock` 为准。
 
@@ -180,7 +180,7 @@ scan_events(id, scan_job_id, document_id?, kind, occurred_at_ms, details_json)
 - PDF 先用 `lopdf` 本地提取有效文本层；任何有效文本层 PDF 保存 `text_layer` 页片段并跳过 OCR。无文本层 PDF 仅用本机 `pdftoppm` 生成临时页图；PNG/JPG/JPEG/TIFF/BMP 直接逐页处理。原文件绝不修改。
 - OCR 结果写入 `DocumentFragment { documentId, page, source: ocr|text_layer|blank, text, confidence?, width, height, rotationDegrees, boxes, sourceLocator }`。`boxes[].boundingBox.points` 是原始页像素坐标；`SourceLocator` 只增加可选 `boundingBox`，未改名/移除前期字段。
 - 所有页文本增量汇总到既有 `document_search_content.ocr` 并刷新 `document_fts`；搜索 OCR 命中优先给出命中文本框的页和坐标。
-- PP-OCRv6 Tiny / ONNX Runtime CPU 只能从应用数据目录旁 `ocr-models/` 读取，本应用不自动下载模型。模型布局、版本、人工离线取得及未验证模型的性能限制见 `docs/ocr-models.md`。
+- PP-OCRv6 Tiny / ONNX Runtime CPU 1.26.0 只能从应用数据目录旁 `ocr-models/` 读取，本应用不自动下载模型。验收资产的上游提交、SHA-256、离线取得方式和真实小样本性能见 `docs/ocr-models.md`；模型加载后推理完全离线。
 - 工期 6 唯一允许读取的正文接口是 `library_document_fragments({ documentId, page? })`；不得访问 `ocr_*` 私有表、canonical path 或临时页图。
 
 ### AI 助手、上下文与权限契约（工期 6）

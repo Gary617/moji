@@ -152,9 +152,9 @@
 
 - 日期：2026-08-19
 - 状态：已接受
-- 决策：使用 `ppocr-rs 0.7.3` 的 PP-OCRv6 Tiny 和 `ort 2.0.0-rc.9` / ONNX Runtime CPU；运行时只从应用数据目录旁 `ocr-models/` 读取 `det.onnx`、`rec.onnx`、同模型导出的 `dictionary.txt` 和 `onnxruntime.dll`。可选 PP-LCNet 方向模型用于旋转页。
+- 决策：使用 `ppocr-rs 0.7.3` 的 PP-OCRv6 Tiny 和 `ort 2.0.0-rc.9` / ONNX Runtime CPU 1.26.0；运行时只从应用数据目录旁 `ocr-models/` 读取 `det.onnx`、`rec.onnx`、同模型导出的 `dictionary.txt` 和校验过的 CPU runtime DLL。可选 PP-LCNet 方向模型用于旋转页。
 - 理由：OCR 文档和模型必须留在本机，模型获取应是可审计的安装步骤而不是隐藏的联网副作用。模型/运行时缺失或损坏需要成为明确、可重试的结构化任务失败。
-- 边界：扫描 PDF 依赖本机 `pdftoppm`，有效 PDF 文本层通过 `lopdf` 提取并跳过 OCR；当前环境无批准模型样本，不能声称真实准确率或性能。
+- 边界：扫描 PDF 依赖本机 `pdftoppm`，有效 PDF 文本层通过 `lopdf` 提取并跳过 OCR；模型取得是显式安装步骤，运行期间完全离线。模型提交、哈希和小样本性能证据记录在 `docs/ocr-models.md`，不得把合成小样本准确率外推为生产准确率。
 
 ## D-022 AI 只通过受控 Provider 和统一片段读取文档
 

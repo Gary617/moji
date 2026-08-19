@@ -20,7 +20,7 @@ use super::{
 };
 
 const MODEL_VERSION: &str = "PP-OCRv6-tiny-2026.08";
-const RUNTIME_VERSION: &str = "ONNX Runtime CPU 1.28 (ort 2.0.0-rc.9)";
+const RUNTIME_VERSION: &str = "ONNX Runtime CPU 1.26.0 (ort 2.0.0-rc.9)";
 const MODEL_DIRECTORY: &str = "pp-ocrv6-tiny";
 
 #[derive(Clone, Debug)]

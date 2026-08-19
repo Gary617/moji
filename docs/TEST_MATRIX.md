@@ -68,7 +68,8 @@
 | Rust OCR schema/片段 | v4、OCR 任务元数据与进度、页文本/置信度/文字框、OCR FTS 与命中页框 | `pnpm test:rust` | PASS：Rust 29/29 |
 | Rust OCR 离线失败 | 必需 PP-OCR/ORT 资产缺失返回 `OCR_MODEL_MISSING`，不访问网络 | `pnpm test:rust` | PASS：缺少 4 项资产被结构化报告 |
 | 前端 OCR IPC | 仅用 `DocumentId` 创建 OCR、仅用 `DocumentId/page` 读片段 | `pnpm test` | PASS：15/15 |
-| OCR 真实样本 | 中文、英文、旋转、空白、有/无文本层 PDF、PNG/JPG/TIFF/BMP、损坏输入、恢复/重试；准确率/耗时/内存/失败率 | 已安装批准的离线模型后运行桌面手工矩阵 | BLOCKED：当前环境无法取得并校验模型资产，未伪造性能数据 |
+| OCR 真实样本 | 9 文件：中文、英文、旋转、空白、有/无文本层 PDF、PNG/JPG/TIFF/BMP、损坏输入 | 本地 PP-OCRv6 Tiny + ONNX Runtime CPU 1.26.0 release 探针及资料库端到端测试 | PASS：合成目标字符串严格匹配 100%（小样本）；预热文字页 240-271 ms，空白页 225 ms，峰值 159.7 MiB，有效 OCR 输入 6/6 成功 |
+| OCR 资料库端到端 | 授权单文件 -> 扫描 -> DocumentId -> OCR/text_layer -> fragments -> FTS -> page/boundingBox，源哈希不变 | 工期 5 基线的 ignored real-model integration test | PASS：1/1，3 文档 debug 总耗时 25.22 秒；有文本层 PDF 未调用 OCR，搜索返回页 1 与文字框 |
 
 ## 工期 6 AI 对话、上下文与权限
 
