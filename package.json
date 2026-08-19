@@ -13,6 +13,7 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "test:editor-poc": "node --experimental-strip-types scripts/run-editor-poc.ts",
+    "test:editor-poc:tauri": "node scripts/run-tauri-editor-poc.mjs",
     "generate:office-fixtures": "node scripts/generate-office-fixtures.mjs",
     "test:watch": "vitest",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --no-default-features",

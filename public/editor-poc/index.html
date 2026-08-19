@@ -56,6 +56,9 @@
       function setResult(ok, message, data) {
         statusNode.className = ok ? 'pass' : 'fail';
         statusNode.textContent = `${message}\n${JSON.stringify(data, null, 2)}`;
+        globalThis.__EDITOR_POC_RESULT__ = { ok, message, ...data };
+        const conclusion = data?.conclusion ?? (ok ? 'PASS' : 'FAIL');
+        document.title = `Office Editor POC | ${conclusion}`;
       }
 
       clearButton.onclick = () => { statusNode.className = ''; statusNode.textContent = ''; };
@@ -156,6 +159,9 @@
           const sourcePreserved = sourceHash === sourceHashAfter;
           const ok = validZip && sourcePreserved && result.reopened && result.markerPresent;
           setResult(ok, ok ? 'PASS: real ZetaOffice DOCX round-trip' : 'FAIL: real ZetaOffice round-trip validation failed', {
+            wasmBase,
+            conclusion: ok ? 'PASS' : 'FAIL',
+            summary: { total: 1, pass: ok ? 1 : 0, degraded: 0, fail: ok ? 0 : 1 },
             sourceBytes,
             outputBytes: output.length,
             sourceSha256: sourceHash,
@@ -165,7 +171,12 @@
             ...result,
           });
         } catch (error) {
-          setResult(false, 'FAIL: real ZetaOffice DOCX round-trip failed', { error: error instanceof Error ? error.message : String(error) });
+          setResult(false, 'FAIL: real ZetaOffice DOCX round-trip failed', {
+            wasmBase,
+            conclusion: 'FAIL',
+            summary: { total: 1, pass: 0, degraded: 0, fail: 1 },
+            error: error instanceof Error ? error.message : String(error),
+          });
         } finally {
           runButton.disabled = false;
         }
@@ -198,7 +209,13 @@
           const conclusion = summary.fail === 0 ? (summary.degraded === 0 ? 'PASS' : 'DEGRADED') : summary.fail === summary.total ? 'BLOCKED' : 'DEGRADED';
           setResult(summary.fail === 0, `REAL ZetaOffice matrix: ${conclusion}`, { generatedAt: new Date().toISOString(), wasmBase, conclusion, summary, samples: results });
         } catch (error) {
-          setResult(false, 'FAIL: matrix runner failed', { error: error instanceof Error ? error.message : String(error) });
+          setResult(false, 'FAIL: matrix runner failed', {
+            wasmBase,
+            conclusion: 'BLOCKED',
+            summary: { total: 0, pass: 0, degraded: 0, fail: 0 },
+            samples: [],
+            error: error instanceof Error ? error.message : String(error),
+          });
         } finally {
           runButton.disabled = !ready;
           matrixButton.disabled = !ready;

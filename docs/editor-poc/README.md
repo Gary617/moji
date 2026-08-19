@@ -38,6 +38,12 @@ pnpm dev
 
 The matrix runs 24 samples (8 per format) and checks the edited marker after reopening, OOXML ZIP magic and the required package part, output SHA-256, and unchanged source SHA-256. `public/editor-poc/office_thread.js` is the only place that calls Writer/Impress/Calc UNO methods. CDN `zetaoffice_latest` is intentionally not treated as a release lock; a production integration must pin or self-host the runtime.
 
+### Tauri/WebView2 host probe
+
+The isolated host configuration is `src-tauri/tauri.editor-poc.conf.json`. It changes only the POC window's dev URL and CSP; it is not the product configuration. Run `pnpm test:editor-poc:tauri` to start a real Tauri/WebView2 process with a private `CARGO_TARGET_DIR`, wait for `/editor-poc/index.html?run=matrix&host=tauri`, and write `docs/editor-poc/results.tauri.{json,md}`. The page publishes its structured result through `globalThis.__EDITOR_POC_RESULT__`; the launcher exits `0` only for a host PASS. Build, WebView2, CSP, runtime, or matrix failures are recorded as `BLOCKED`/`FAIL` and never change `results.{json,md}`.
+
+This host probe is separate from the browser report. Browser `PASS` is evidence for the browser worker only and must not be counted as Tauri/WebView2 evidence.
+
 To run against a real browser/worker bridge, provide a module exporting a `ZetaOfficeRuntime`-compatible object:
 
 ```powershell

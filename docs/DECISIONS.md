@@ -85,6 +85,20 @@
 - 决策：24 个代表性 DOCX/PPTX/XLSX 夹具在真实浏览器 ZetaOffice runtime 中全部通过打开、修改、OOXML filter 另存、关闭、重开、编辑标记、主部件和源 SHA-256 校验；另有真实产品方案 DOCX smoke sample 通过。POC 结论为 `PASS`。
 - 边界：该 PASS 证明浏览器 worker 的格式回环，不证明所有真实用户文件的视觉保真、不证明离线 CDN 可用，也不替代 Node/Tauri WebView2 自动化 runner。
 
+## D-012a Tauri/WebView2 宿主必须单独取证
+
+- 日期：2026-08-19
+- 状态：已接受
+- 决策：`src-tauri/tauri.editor-poc.conf.json` 和 `pnpm test:editor-poc:tauri` 是隔离的桌面宿主验证入口。它读取真实 WebView2 页面发布的结构化矩阵结果，并将宿主构建、CSP、runtime、样本和回退错误写入 `results.tauri.*`；任何未到达宿主结果的情况都只能是 `BLOCKED`。
+- 理由：浏览器 worker 的 24/24 PASS 不能证明 Tauri/WebView2 或安装包路径；独立报告避免把两类证据混淆。
+
+## D-012b ZetaOffice CDN latest 不得作为生产锁定
+
+- 日期：2026-08-19
+- 状态：已接受
+- 决策：官方 `zetajs` 依赖固定为 npm `1.2.0`（MIT），但 ZetaOffice CDN 仍使用 `https://cdn.zetaoffice.net/zetaoffice_latest/`。2026-08-19 对 `soffice.js`、`soffice.wasm`、`soffice.data` 的 HEAD 响应为 200，ETag 分别为 `682362af-d180c`、`682362b6-22993d2`、`682362b3-f27a45`，Last-Modified 为 2025-05-13；官方未提供可验证的 `zetaoffice_1.2.0` 或 `zetaoffice_v1.2.0` URL（均 404）。
+- 理由：latest 会漂移，且当前响应没有可提交的 SHA-256。生产依赖必须在官方提供稳定构建后锁定 URL+SHA-256，或自托管并登记校验值；在此之前结论保持 `BLOCKED`。
+
 ## D-013 本地资料库使用 migration v1 的内置 SQLite
 
 - 日期：2026-08-19

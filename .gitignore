@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 src-tauri/target/
+src-tauri/target-editor-poc*/
 src-tauri/gen/
 src-tauri/icons/android/
 src-tauri/icons/ios/

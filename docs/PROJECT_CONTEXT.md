@@ -82,6 +82,7 @@ pnpm tauri dev
 - `pnpm generate:office-fixtures`：生成 24 个确定性 DOCX/PPTX/XLSX OOXML POC 夹具，不代表编辑器通过。
 - `pnpm test:editor-poc`：在临时目录执行注入 `ZetaOfficeRuntime` 的 EditorAdapter round-trip；没有 Node runtime bridge 时必须返回 `BLOCKED`，不得用 mock 代替。Node 报告默认写入 `docs/editor-poc/results.node.{json,md}`，不覆盖浏览器真实证据。
 - 浏览器真实 POC：启动 `pnpm dev`，打开 `http://127.0.0.1:1420/editor-poc/index.html`，等待官方 CDN runtime ready，点击 `Run 24-sample matrix`；页面执行真实 `Module.zetajs` worker 回环，结果写入 `docs/editor-poc/results.{json,md}`。
+- Tauri/WebView2 Office POC：`pnpm test:editor-poc:tauri` 使用隔离 `src-tauri/tauri.editor-poc.conf.json`、独立 `CARGO_TARGET_DIR` 和本地 WebView2 调试端口运行同一 24 样本页面，结果写入 `docs/editor-poc/results.tauri.{json,md}`；失败必须保留 `BLOCKED`，不能覆盖浏览器结果。
 - `pnpm tauri dev`：启动开发服务器和真实桌面窗口，用于手工 IPC 验收。
 
 ## IPC 约定

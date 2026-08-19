@@ -54,6 +54,14 @@
   - 未把 mock 结果当成 POC 通过证据；未实现静默源文件写回。
 - 下一窗口第一步:
   - 先读取本文件和 `docs/editor-poc/results.md`，冻结 CDN/runtime 版本，随后把浏览器 worker 生命周期接入 Tauri WebView2 自动化；不要让业务代码越过 `EditorAdapter`。
+
+## 工期 1 补充验证（2026-08-19）
+
+- 新增隔离桌面入口：`src-tauri/tauri.editor-poc.conf.json`，不会改变产品 `tauri.conf.json` 或 Office 只读降级注册。
+- 新增宿主 runner：`pnpm test:editor-poc:tauri` / `scripts/run-tauri-editor-poc.mjs`。它使用独立 `src-tauri/target-editor-poc`、本地 WebView2 调试端口和 `globalThis.__EDITOR_POC_RESULT__`，输出 `docs/editor-poc/results.tauri.{json,md}`；没有宿主结果时按 `BLOCKED` 退出，不覆盖浏览器 `results.{json,md}`。
+- 本轮实际命令已启动 Vite/Tauri 编译入口；当前环境尚未取得 WebView2 24 样本结果，独立报告保持 `BLOCKED`。这不能改写为浏览器 PASS。
+- CDN 版本调查完成：`zetajs@1.2.0` 仍为固定 npm wrapper；ZetaOffice `latest` 资源仅有 ETag/Last-Modified，官方版本目录 URL 404，无可验证 SHA-256 锁定，因此生产 runtime 仍是阻塞项。
+- 视觉核对仍未完成：结构化 OOXML round-trip 通过不等于批注、图表、图片、中文字体和复杂排版的视觉保真通过；必须在可运行的浏览器/WebView2 页面逐样本截图或人工确认后单独登记。
 - 下一阶段禁止改变:
   - 不得让索引/业务模块调用 `zetajs` 或 UNO 内部 API；只能依赖 `EditorAdapter`。
   - 不得删除 FAIL 样本、把 runtime 缺失改写为 DEGRADED/PASS，或在保存失败时覆盖原文件。
