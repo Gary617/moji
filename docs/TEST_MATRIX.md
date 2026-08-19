@@ -40,10 +40,23 @@
 
 ## 当前自动化统计
 
-- 前端：4 个测试文件，10 个测试，通过 10，失败 0。
-- Rust：19 个单元测试，通过 19，失败 0。
+- 前端：6 个测试文件，15 个测试，通过 15，失败 0。
+- Rust：当前工作树 28 个单元测试，通过 28，失败 0；其中工期 4 文档服务新增 3 个测试。
 - 本地资料库：临时目录涵盖新增、未变、修改、删除、重命名、重复导入、未支持格式、授权边界、持久化事件、暂停/恢复/取消/重试和数据库重开恢复；失败 0。权限不足/独占锁定使用相同 `PERMISSION_DENIED`/`HASH_READ_FAILED` 结构化路径，仍需在真实受限 ACL 和独占锁文件上做桌面手工演练。
 - Office POC：浏览器真实矩阵 24 个样本，24 PASS / 0 DEGRADED / 0 FAIL；Node runner 在无 runtime bridge 环境仍为 BLOCKED，这是两条不同证据链。
 - 已知非失败输出：MSVC 链接器以中文输出“正在创建库”，Rust 1.97.1 将该 stdout 显示为 `linker_messages` warning；产物和测试均成功。
 - 搜索性能测试记录硬件和样本规模：1,000 文档、30 次查询、limit 50，p95 53 ms；这是一项 bundled SQLite 内存数据库基准，不代表大规模磁盘库或正文提取后的最终性能。
 - 生产构建首次因全局 Node 24.13.0 / pnpm 11.22.0 不满足项目引擎约束而被正确拒绝；切换到 `PROJECT_CONTEXT.md` 要求的 Node 24.19.0 / pnpm 11.19.0 后原命令通过。
+
+## 工期 4 查看器与恢复
+
+| 层级 | 样本/目标 | 命令 | 结果 |
+| --- | --- | --- | --- |
+| Rust 文档服务 | Markdown 保存前快照、正常重开和快照恢复 | `cargo test --manifest-path src-tauri/Cargo.toml library::document::tests::saves_text_only_after_snapshot_and_restores_original_bytes` | PASS |
+| Rust 冲突安全 | 外部修改阻止静默覆盖，原文件保持外部内容 | `cargo test --manifest-path src-tauri/Cargo.toml library::document::tests::detects_external_modification_without_overwriting_file` | PASS |
+| Rust 批注 | 引用文本字符范围锚点保存/重载 | `cargo test --manifest-path src-tauri/Cargo.toml library::document::tests::persists_annotations_with_explicit_unstable_anchor_fallback` | PASS |
+| 前端 IPC | Document ID、哈希、模式、批注锚点请求形状 | `pnpm test` | PASS，14/14 |
+| 前端 Registry | Markdown/TXT/CSV、PDF.js、Office、未支持格式分流 | `pnpm test` | PASS |
+| 前端构建 | PDF.js worker、查看器工作区和状态 UI | `pnpm build` | PASS |
+
+已知降级：Office 产品宿主 runtime bridge 未配置，保持只读；PDF 只渲染第一页；页码/段落稳定定位尚未完成；另存入口显示但等待受控文件对话框能力。全量 Rust 命令受并发 OCR 依赖首次编译影响，库测试已 25/25 PASS。

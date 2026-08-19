@@ -5,11 +5,14 @@ use serde_json::Value;
 use tauri::State;
 
 use crate::library::{
+    document::DocumentSaveInput,
     model::{
-        CollectionId, CollectionRecord, DocumentId, IndexRebuildSummary, LibraryError,
-        LibraryErrorCode, LibraryResult, ScanEvent, ScanJobId, ScanJobRecord, ScanSummary,
-        SearchQuery, SearchResults, SourceRegistration, SourceRootId, SourceRootRecord, TagId,
-        TagRecord, WatchPollResult, WatchStatus,
+        AnnotationAnchor, AnnotationRecord, CollectionId, CollectionRecord, DocumentFragment,
+        DocumentId, DocumentMode, DocumentOpenResult, DocumentSaveResult, IndexRebuildSummary,
+        LibraryError, LibraryErrorCode, LibraryResult, OcrJobId, OcrJobRecord, OcrModelStatus,
+        ScanEvent, ScanJobId, ScanJobRecord, ScanSummary, SearchQuery, SearchResults,
+        SnapshotRecord, SourceRegistration, SourceRootId, SourceRootRecord, TagId, TagRecord,
+        WatchPollResult, WatchStatus,
     },
     queue::ScanQueue,
     scanner::LibraryService,
@@ -114,6 +117,58 @@ pub(crate) struct FavoriteRequest {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DocumentRequest {
     pub document_id: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OcrJobRequest {
+    pub ocr_job_id: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DocumentFragmentRequest {
+    pub document_id: String,
+    pub page: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DocumentOpenRequest {
+    pub document_id: String,
+    pub mode: DocumentMode,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DocumentSaveRequest {
+    pub document_id: String,
+    pub expected_sha256: String,
+    pub content: String,
+    pub mode: DocumentMode,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SnapshotRestoreRequest {
+    pub document_id: String,
+    pub snapshot_id: String,
+    pub expected_sha256: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AnnotationCreateRequest {
+    pub document_id: String,
+    pub author: String,
+    pub body: String,
+    pub anchor: AnnotationAnchor,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AnnotationDeleteRequest {
+    pub annotation_id: String,
 }
 
 #[tauri::command]
@@ -350,6 +405,164 @@ pub(crate) fn library_rebuild_search_index(
     with_service(&state, |service| service.database.rebuild_search_index())
 }
 
+#[tauri::command]
+pub(crate) fn library_ocr_model_status(
+    state: State<'_, LibraryState>,
+) -> IpcResponse<OcrModelStatus> {
+    with_service(&state, |service| Ok(service.ocr_model_status()))
+}
+
+#[tauri::command]
+pub(crate) fn library_start_ocr(
+    request: DocumentRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<OcrJobRecord> {
+    let document_id = DocumentId(request.document_id);
+    let response = with_service(&state, |service| service.enqueue_ocr(&document_id));
+    schedule_ocr_response(&state, response)
+}
+
+#[tauri::command]
+pub(crate) fn library_ocr_status(
+    request: OcrJobRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<OcrJobRecord> {
+    let job_id = OcrJobId(request.ocr_job_id);
+    with_service(&state, |service| service.ocr_job(&job_id))
+}
+
+#[tauri::command]
+pub(crate) fn library_pause_ocr(
+    request: OcrJobRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<OcrJobRecord> {
+    let job_id = OcrJobId(request.ocr_job_id);
+    with_service(&state, |service| service.pause_ocr(&job_id))
+}
+
+#[tauri::command]
+pub(crate) fn library_resume_ocr(
+    request: OcrJobRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<OcrJobRecord> {
+    let job_id = OcrJobId(request.ocr_job_id);
+    let response = with_service(&state, |service| service.resume_ocr(&job_id));
+    schedule_ocr_response(&state, response)
+}
+
+#[tauri::command]
+pub(crate) fn library_cancel_ocr(
+    request: OcrJobRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<OcrJobRecord> {
+    let job_id = OcrJobId(request.ocr_job_id);
+    with_service(&state, |service| service.cancel_ocr(&job_id))
+}
+
+#[tauri::command]
+pub(crate) fn library_retry_ocr(
+    request: OcrJobRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<OcrJobRecord> {
+    let job_id = OcrJobId(request.ocr_job_id);
+    let response = with_service(&state, |service| service.retry_ocr(&job_id));
+    schedule_ocr_response(&state, response)
+}
+
+#[tauri::command]
+pub(crate) fn library_document_fragments(
+    request: DocumentFragmentRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<Vec<DocumentFragment>> {
+    let document_id = DocumentId(request.document_id);
+    with_service(&state, |service| service.ocr_fragments(&document_id, request.page))
+}
+
+#[tauri::command]
+pub(crate) fn document_open(
+    request: DocumentOpenRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<DocumentOpenResult> {
+    let document_id = DocumentId(request.document_id);
+    with_service(&state, |service| {
+        service.open_document(&document_id, request.mode)
+    })
+}
+
+#[tauri::command]
+pub(crate) fn document_save(
+    request: DocumentSaveRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<DocumentSaveResult> {
+    let document_id = DocumentId(request.document_id);
+    with_service(&state, |service| {
+        service.save_document(DocumentSaveInput {
+            document_id: &document_id,
+            expected_sha256: &request.expected_sha256,
+            content: &request.content,
+            mode: request.mode,
+        })
+    })
+}
+
+#[tauri::command]
+pub(crate) fn document_close(
+    _request: DocumentRequest,
+    _state: State<'_, LibraryState>,
+) -> IpcResponse<()> {
+    IpcResponse::success(())
+}
+
+#[tauri::command]
+pub(crate) fn document_list_snapshots(
+    request: DocumentRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<Vec<SnapshotRecord>> {
+    let document_id = DocumentId(request.document_id);
+    with_service(&state, |service| service.snapshots(&document_id))
+}
+
+#[tauri::command]
+pub(crate) fn document_restore_snapshot(
+    request: SnapshotRestoreRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<DocumentSaveResult> {
+    let document_id = DocumentId(request.document_id);
+    with_service(&state, |service| {
+        service.restore_snapshot(&document_id, &request.snapshot_id, &request.expected_sha256)
+    })
+}
+
+#[tauri::command]
+pub(crate) fn document_list_annotations(
+    request: DocumentRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<Vec<AnnotationRecord>> {
+    let document_id = DocumentId(request.document_id);
+    with_service(&state, |service| service.annotations(&document_id))
+}
+
+#[tauri::command]
+pub(crate) fn document_add_annotation(
+    request: AnnotationCreateRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<AnnotationRecord> {
+    let document_id = DocumentId(request.document_id);
+    with_service(&state, |service| {
+        service.add_annotation(&document_id, request.author, request.body, request.anchor)
+    })
+}
+
+#[tauri::command]
+pub(crate) fn document_delete_annotation(
+    request: AnnotationDeleteRequest,
+    state: State<'_, LibraryState>,
+) -> IpcResponse<()> {
+    with_service(&state, |service| {
+        service.delete_annotation(&request.annotation_id)
+    })
+}
+
 fn schedule_response<T, F>(
     state: &State<'_, LibraryState>,
     response: IpcResponse<ScanJobRecord>,
@@ -380,6 +593,38 @@ fn spawn_scan_worker(database_path: PathBuf, scan_job_id: ScanJobId) {
                 tracing::warn!(
                     event = "library_scan_worker_failed",
                     scan_job_id = %scan_job_id.0,
+                    code = %error.code,
+                );
+            }
+        });
+}
+
+fn schedule_ocr_response(
+    state: &State<'_, LibraryState>,
+    response: IpcResponse<OcrJobRecord>,
+) -> IpcResponse<OcrJobRecord> {
+    match response {
+        IpcResponse::Success { data: job } => match state.database_path() {
+            Ok(path) => {
+                spawn_ocr_worker(path, job.id.clone());
+                IpcResponse::success(job)
+            }
+            Err(error) => IpcResponse::error(library_ipc_error(error)),
+        },
+        IpcResponse::Error { error } => IpcResponse::Error { error },
+    }
+}
+
+fn spawn_ocr_worker(database_path: PathBuf, ocr_job_id: OcrJobId) {
+    let _ = std::thread::Builder::new()
+        .name("moji-library-ocr".to_owned())
+        .spawn(move || {
+            let result = LibraryService::open_worker(database_path)
+                .and_then(|mut service| service.run_ocr_job(&ocr_job_id));
+            if let Err(error) = result {
+                tracing::warn!(
+                    event = "library_ocr_worker_failed",
+                    ocr_job_id = %ocr_job_id.0,
                     code = %error.code,
                 );
             }

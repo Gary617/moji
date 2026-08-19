@@ -7,11 +7,13 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::V
 use serde_json::{Value, from_str, to_string};
 
 use super::model::{
-    CollectionId, CollectionRecord, DocumentFormat, DocumentId, DocumentRecord, DocumentStatus,
-    IndexRebuildSummary, LIBRARY_SCHEMA_VERSION, LibraryError, LibraryErrorCode, LibraryResult,
-    ScanEvent, ScanEventKind, ScanJobId, ScanJobRecord, ScanJobState, SearchDocument, SearchQuery,
-    SearchResults, SearchSnippet, SourceKind, SourceLocator, SourceRegistration, SourceRootId,
-    SourceRootRecord, TagId, TagRecord, new_identifier, now_unix_ms,
+    AnnotationAnchor, AnnotationRecord, CollectionId, CollectionRecord, DocumentFormat, DocumentFragment,
+    DocumentId, DocumentRecord, DocumentStatus, IndexRebuildSummary, LIBRARY_SCHEMA_VERSION,
+    LibraryError, LibraryErrorCode, LibraryResult, OcrJobId, OcrJobRecord, OcrTextBox,
+    ScanEvent, ScanEventKind, ScanJobId, ScanJobRecord, ScanJobState, SearchDocument,
+    SearchQuery, SearchResults, SearchSnippet, SnapshotRecord, SourceKind, SourceLocator,
+    SourceRegistration, SourceRootId, SourceRootRecord, TagId, TagRecord, new_identifier,
+    now_unix_ms,
 };
 
 pub(crate) struct LibraryDatabase {
@@ -189,6 +191,106 @@ impl LibraryDatabase {
                     INSERT OR IGNORE INTO document_search_content(document_id, body, ocr, updated_at_ms)
                         SELECT id, '', '', updated_at_ms FROM documents;
                     PRAGMA user_version = 2;
+                    "#,
+                )
+                .map_err(database_error)?;
+            version = 2;
+        }
+        if version == 2 {
+            self.connection
+                .execute_batch(
+                    r#"
+                    CREATE TABLE IF NOT EXISTS document_snapshots (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                        original_sha256 TEXT NOT NULL,
+                        content BLOB NOT NULL,
+                        created_at_ms INTEGER NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS document_snapshots_document_idx
+                        ON document_snapshots(document_id, created_at_ms DESC);
+                    CREATE TABLE IF NOT EXISTS document_annotations (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                        author TEXT NOT NULL,
+                        body TEXT NOT NULL,
+                        anchor_kind TEXT NOT NULL,
+                        page INTEGER,
+                        slide INTEGER,
+                        paragraph INTEGER,
+                        char_start INTEGER,
+                        char_end INTEGER,
+                        quote TEXT,
+                        stable INTEGER NOT NULL DEFAULT 0,
+                        created_at_ms INTEGER NOT NULL,
+                        updated_at_ms INTEGER NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS document_annotations_document_idx
+                        ON document_annotations(document_id, updated_at_ms DESC);
+                    PRAGMA user_version = 3;
+                    "#,
+                )
+                .map_err(database_error)?;
+            version = 3;
+        }
+        if version == 3 {
+            self.connection
+                .execute_batch(
+                    r#"
+                    CREATE TABLE IF NOT EXISTS ocr_jobs (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                        source_root_id TEXT NOT NULL REFERENCES source_roots(id) ON DELETE CASCADE,
+                        state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'paused', 'cancelled', 'failed', 'completed')),
+                        page_count INTEGER NOT NULL DEFAULT 0,
+                        processed_count INTEGER NOT NULL DEFAULT 0,
+                        failed_count INTEGER NOT NULL DEFAULT 0,
+                        retry_count INTEGER NOT NULL DEFAULT 0,
+                        error_code TEXT,
+                        model_version TEXT NOT NULL,
+                        runtime_version TEXT NOT NULL,
+                        input_sha256 TEXT NOT NULL,
+                        duration_ms INTEGER,
+                        model_bytes INTEGER NOT NULL DEFAULT 0,
+                        created_at_ms INTEGER NOT NULL,
+                        updated_at_ms INTEGER NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS ocr_jobs_document_idx
+                        ON ocr_jobs(document_id, updated_at_ms DESC);
+                    CREATE TABLE IF NOT EXISTS ocr_pages (
+                        document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                        page INTEGER NOT NULL,
+                        source TEXT NOT NULL CHECK (source IN ('ocr', 'text_layer', 'blank')),
+                        text TEXT NOT NULL,
+                        confidence REAL,
+                        width INTEGER NOT NULL DEFAULT 0,
+                        height INTEGER NOT NULL DEFAULT 0,
+                        rotation_degrees INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY (document_id, page)
+                    );
+                    CREATE TABLE IF NOT EXISTS ocr_text_boxes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        document_id TEXT NOT NULL,
+                        page INTEGER NOT NULL,
+                        text TEXT NOT NULL,
+                        confidence REAL NOT NULL,
+                        points_json TEXT NOT NULL,
+                        FOREIGN KEY (document_id, page) REFERENCES ocr_pages(document_id, page) ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS ocr_text_boxes_document_page_idx
+                        ON ocr_text_boxes(document_id, page, id);
+                    CREATE TABLE IF NOT EXISTS ocr_metrics (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ocr_job_id TEXT NOT NULL REFERENCES ocr_jobs(id) ON DELETE CASCADE,
+                        page INTEGER,
+                        stage TEXT NOT NULL,
+                        duration_ms INTEGER NOT NULL,
+                        resource_bytes INTEGER NOT NULL DEFAULT 0,
+                        created_at_ms INTEGER NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS ocr_metrics_job_idx
+                        ON ocr_metrics(ocr_job_id, id);
+                    PRAGMA user_version = 4;
                     "#,
                 )
                 .map_err(database_error)?;
@@ -419,6 +521,200 @@ impl LibraryDatabase {
         self.refresh_document_index(document_id)
     }
 
+    pub(crate) fn create_ocr_job(
+        &mut self,
+        document_id: &DocumentId,
+        model_version: &str,
+        runtime_version: &str,
+        model_bytes: u64,
+    ) -> LibraryResult<OcrJobRecord> {
+        let document = self.document_by_id(document_id)?.ok_or_else(|| {
+            LibraryError::new(LibraryErrorCode::DocumentNotFound, "document was not found")
+        })?;
+        if document.status != DocumentStatus::Present {
+            return Err(LibraryError::new(
+                LibraryErrorCode::DocumentNotFound,
+                "document is not currently available",
+            ));
+        }
+        if !matches!(document.format, DocumentFormat::Pdf | DocumentFormat::Png | DocumentFormat::Jpg | DocumentFormat::Tiff | DocumentFormat::Bmp) {
+            return Err(LibraryError::new(
+                LibraryErrorCode::OcrUnsupportedFormat,
+                "this document format cannot be sent to OCR",
+            ));
+        }
+        let job = OcrJobRecord {
+            id: OcrJobId(new_identifier("ocr")),
+            document_id: document.id,
+            source_root_id: document.source_root_id,
+            state: ScanJobState::Queued,
+            page_count: 0,
+            processed_count: 0,
+            failed_count: 0,
+            retry_count: 0,
+            error_code: None,
+            model_version: model_version.to_owned(),
+            runtime_version: runtime_version.to_owned(),
+            input_sha256: document.content_sha256,
+            duration_ms: None,
+            model_bytes,
+            created_at_ms: now_unix_ms(),
+            updated_at_ms: now_unix_ms(),
+        };
+        self.connection.execute(
+            "INSERT INTO ocr_jobs (id, document_id, source_root_id, state, page_count, processed_count, failed_count, retry_count, error_code, model_version, runtime_version, input_sha256, duration_ms, model_bytes, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, 0, 0, 0, 0, NULL, ?5, ?6, ?7, NULL, ?8, ?9, ?9)",
+            params![job.id.0, job.document_id.0, job.source_root_id.0, job.state.as_str(), job.model_version, job.runtime_version, job.input_sha256, sqlite_int(job.model_bytes), job.created_at_ms],
+        ).map_err(database_error)?;
+        Ok(job)
+    }
+
+    pub(crate) fn ocr_job(&self, id: &OcrJobId) -> LibraryResult<Option<OcrJobRecord>> {
+        self.connection.query_row(
+            "SELECT id, document_id, source_root_id, state, page_count, processed_count, failed_count, retry_count, error_code, model_version, runtime_version, input_sha256, duration_ms, model_bytes, created_at_ms, updated_at_ms FROM ocr_jobs WHERE id = ?1",
+            params![id.0],
+            ocr_job_from_row,
+        ).optional().map_err(database_error)
+    }
+
+    pub(crate) fn recover_running_ocr_jobs(&mut self) -> LibraryResult<()> {
+        self.connection.execute(
+            "UPDATE ocr_jobs SET state = 'paused', updated_at_ms = ?1 WHERE state = 'running'",
+            params![now_unix_ms()],
+        ).map_err(database_error)?;
+        Ok(())
+    }
+
+    pub(crate) fn update_ocr_job(
+        &mut self,
+        id: &OcrJobId,
+        state: ScanJobState,
+        page_count: u32,
+        processed_count: u32,
+        failed_count: u32,
+        retry_count: u32,
+        error_code: Option<&str>,
+        duration_ms: Option<u64>,
+    ) -> LibraryResult<OcrJobRecord> {
+        let changed = self.connection.execute(
+            "UPDATE ocr_jobs SET state = ?2, page_count = ?3, processed_count = ?4, failed_count = ?5, retry_count = ?6, error_code = ?7, duration_ms = ?8, updated_at_ms = ?9 WHERE id = ?1",
+            params![id.0, state.as_str(), i64::from(page_count), i64::from(processed_count), i64::from(failed_count), i64::from(retry_count), error_code, duration_ms.map(|value| sqlite_int(value)), now_unix_ms()],
+        ).map_err(database_error)?;
+        if changed == 0 {
+            return Err(LibraryError::new(LibraryErrorCode::OcrJobNotFound, "OCR job was not found"));
+        }
+        self.ocr_job(id)?.ok_or_else(|| LibraryError::new(LibraryErrorCode::OcrJobNotFound, "OCR job was not found"))
+    }
+
+    pub(crate) fn update_running_ocr_progress(
+        &mut self,
+        id: &OcrJobId,
+        page_count: u32,
+        processed_count: u32,
+        failed_count: u32,
+    ) -> LibraryResult<Option<OcrJobRecord>> {
+        let changed = self.connection.execute(
+            "UPDATE ocr_jobs SET page_count = ?2, processed_count = ?3, failed_count = ?4, updated_at_ms = ?5 WHERE id = ?1 AND state = 'running'",
+            params![id.0, i64::from(page_count), i64::from(processed_count), i64::from(failed_count), now_unix_ms()],
+        ).map_err(database_error)?;
+        if changed == 0 { return Ok(None); }
+        self.ocr_job(id)
+    }
+
+    pub(crate) fn add_ocr_metric(
+        &mut self,
+        id: &OcrJobId,
+        page: Option<u32>,
+        stage: &str,
+        duration_ms: u64,
+        resource_bytes: u64,
+    ) -> LibraryResult<()> {
+        self.connection.execute(
+            "INSERT INTO ocr_metrics (ocr_job_id, page, stage, duration_ms, resource_bytes, created_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id.0, page.map(i64::from), stage, sqlite_int(duration_ms), sqlite_int(resource_bytes), now_unix_ms()],
+        ).map_err(database_error)?;
+        Ok(())
+    }
+
+    pub(crate) fn clear_ocr_results(&mut self, document_id: &DocumentId) -> LibraryResult<()> {
+        self.connection.execute("DELETE FROM ocr_pages WHERE document_id = ?1", params![document_id.0]).map_err(database_error)?;
+        self.refresh_ocr_search_content(document_id)
+    }
+
+    pub(crate) fn replace_ocr_page(
+        &mut self,
+        document_id: &DocumentId,
+        page: u32,
+        source: &str,
+        text: &str,
+        confidence: Option<f32>,
+        width: u32,
+        height: u32,
+        rotation_degrees: u32,
+        boxes: &[OcrTextBox],
+    ) -> LibraryResult<()> {
+        if !matches!(source, "ocr" | "text_layer" | "blank") {
+            return Err(LibraryError::new(LibraryErrorCode::InvalidArgument, "OCR page source is invalid"));
+        }
+        let transaction = self.connection.transaction().map_err(database_error)?;
+        transaction.execute("DELETE FROM ocr_pages WHERE document_id = ?1 AND page = ?2", params![document_id.0, i64::from(page)]).map_err(database_error)?;
+        transaction.execute(
+            "INSERT INTO ocr_pages (document_id, page, source, text, confidence, width, height, rotation_degrees) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![document_id.0, i64::from(page), source, text, confidence, i64::from(width), i64::from(height), i64::from(rotation_degrees)],
+        ).map_err(database_error)?;
+        for text_box in boxes {
+            transaction.execute(
+                "INSERT INTO ocr_text_boxes (document_id, page, text, confidence, points_json) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![document_id.0, i64::from(page), text_box.text, text_box.confidence, to_string(&text_box.bounding_box).map_err(|_| database_error(rusqlite::Error::InvalidQuery))?],
+            ).map_err(database_error)?;
+        }
+        transaction.commit().map_err(database_error)?;
+        self.refresh_ocr_search_content(document_id)
+    }
+
+    pub(crate) fn document_fragments(
+        &self,
+        document_id: &DocumentId,
+        page: Option<u32>,
+    ) -> LibraryResult<Vec<DocumentFragment>> {
+        self.ensure_document(document_id)?;
+        let mut sql = "SELECT document_id, page, source, text, confidence, width, height, rotation_degrees FROM ocr_pages WHERE document_id = ?1".to_owned();
+        if page.is_some() { sql.push_str(" AND page = ?2"); }
+        sql.push_str(" ORDER BY page");
+        let mut statement = self.connection.prepare(&sql).map_err(database_error)?;
+        let page_rows = if let Some(page) = page {
+            statement.query_map(params![document_id.0, i64::from(page)], ocr_page_from_row)
+        } else {
+            statement.query_map(params![document_id.0], ocr_page_from_row)
+        }.map_err(database_error)?.collect::<Result<Vec<_>, _>>().map_err(database_error)?;
+        let mut fragments = Vec::new();
+        for (fragment_document_id, fragment_page, source, text, confidence, width, height, rotation_degrees) in page_rows {
+            let boxes = self.ocr_boxes(document_id, fragment_page)?;
+            fragments.push(DocumentFragment {
+                document_id: fragment_document_id, page: fragment_page, source, text, confidence, width, height, rotation_degrees,
+                source_locator: SourceLocator { kind: "page".to_owned(), page: Some(fragment_page), slide: None, paragraph: None, bounding_box: None, available: true, reason: None }, boxes,
+            });
+        }
+        Ok(fragments)
+    }
+
+    fn ocr_boxes(&self, document_id: &DocumentId, page: u32) -> LibraryResult<Vec<OcrTextBox>> {
+        let mut statement = self.connection.prepare("SELECT text, confidence, points_json FROM ocr_text_boxes WHERE document_id = ?1 AND page = ?2 ORDER BY id").map_err(database_error)?;
+        let rows = statement.query_map(params![document_id.0, i64::from(page)], |row| {
+            let points_json: String = row.get(2)?;
+            Ok(OcrTextBox { text: row.get(0)?, confidence: row.get(1)?, bounding_box: from_str(&points_json).map_err(|_| rusqlite::Error::InvalidQuery)? })
+        }).map_err(database_error)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(database_error)
+    }
+
+    fn refresh_ocr_search_content(&mut self, document_id: &DocumentId) -> LibraryResult<()> {
+        let ocr: String = self.connection.query_row(
+            "SELECT COALESCE(group_concat(text, char(10)), '') FROM (SELECT text FROM ocr_pages WHERE document_id = ?1 ORDER BY page)",
+            params![document_id.0], |row| row.get(0),
+        ).map_err(database_error)?;
+        let body: String = self.connection.query_row("SELECT body FROM document_search_content WHERE document_id = ?1", params![document_id.0], |row| row.get(0)).optional().map_err(database_error)?.unwrap_or_default();
+        self.set_document_search_fields(document_id, &body, &ocr)
+    }
+
     pub(crate) fn rebuild_search_index(&mut self) -> LibraryResult<IndexRebuildSummary> {
         let started = Instant::now();
         let documents = self.all_documents()?;
@@ -603,7 +899,7 @@ impl LibraryDatabase {
                 })
                 .collect();
             items.push(SearchDocument {
-                source_locator: source_locator(&document),
+                source_locator: self.source_locator_for_search(&document, text),
                 tags: self.tags_for_document(&document.id)?,
                 collections: self.collections_for_document(&document.id)?,
                 document,
@@ -639,6 +935,130 @@ impl LibraryDatabase {
             )
             .optional()
             .map_err(database_error)
+    }
+
+    pub(crate) fn create_snapshot(
+        &mut self,
+        document_id: &DocumentId,
+        original_sha256: &str,
+        content: &[u8],
+    ) -> LibraryResult<SnapshotRecord> {
+        self.ensure_document(document_id)?;
+        let snapshot = SnapshotRecord {
+            id: new_identifier("snap"),
+            document_id: document_id.clone(),
+            original_sha256: original_sha256.to_owned(),
+            created_at_ms: now_unix_ms(),
+            byte_len: content.len() as u64,
+        };
+        self.connection
+            .execute(
+                "INSERT INTO document_snapshots (id, document_id, original_sha256, content, created_at_ms) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![snapshot.id, snapshot.document_id.0, snapshot.original_sha256, content, snapshot.created_at_ms],
+            )
+            .map_err(database_error)?;
+        Ok(snapshot)
+    }
+
+    pub(crate) fn snapshot_content(
+        &self,
+        snapshot_id: &str,
+    ) -> LibraryResult<Option<(SnapshotRecord, Vec<u8>)>> {
+        self.connection
+            .query_row(
+                "SELECT id, document_id, original_sha256, content, created_at_ms FROM document_snapshots WHERE id = ?1",
+                params![snapshot_id],
+                |row| {
+                    let content: Vec<u8> = row.get(3)?;
+                    Ok((SnapshotRecord {
+                        id: row.get(0)?,
+                        document_id: DocumentId(row.get(1)?),
+                        original_sha256: row.get(2)?,
+                        created_at_ms: row.get(4)?,
+                        byte_len: content.len() as u64,
+                    }, content))
+                },
+            )
+            .optional()
+            .map_err(database_error)
+    }
+
+    pub(crate) fn snapshots_for_document(
+        &self,
+        document_id: &DocumentId,
+    ) -> LibraryResult<Vec<SnapshotRecord>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT id, document_id, original_sha256, length(content), created_at_ms FROM document_snapshots WHERE document_id = ?1 ORDER BY created_at_ms DESC")
+            .map_err(database_error)?;
+        let rows = statement
+            .query_map(params![document_id.0], |row| {
+                Ok(SnapshotRecord {
+                    id: row.get(0)?,
+                    document_id: DocumentId(row.get(1)?),
+                    original_sha256: row.get(2)?,
+                    byte_len: row.get::<_, i64>(3)?.max(0) as u64,
+                    created_at_ms: row.get(4)?,
+                })
+            })
+            .map_err(database_error)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(database_error)
+    }
+
+    pub(crate) fn add_annotation(&mut self, annotation: &AnnotationRecord) -> LibraryResult<()> {
+        self.ensure_document(&annotation.document_id)?;
+        self.connection.execute(
+            "INSERT INTO document_annotations (id, document_id, author, body, anchor_kind, page, slide, paragraph, char_start, char_end, quote, stable, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)",
+            params![annotation.id, annotation.document_id.0, annotation.author, annotation.body, annotation.anchor.kind, annotation.anchor.page, annotation.anchor.slide, annotation.anchor.paragraph, annotation.anchor.char_start, annotation.anchor.char_end, annotation.anchor.quote, i64::from(annotation.anchor.stable), annotation.created_at_ms],
+        ).map_err(database_error)?;
+        Ok(())
+    }
+
+    pub(crate) fn annotations_for_document(
+        &self,
+        document_id: &DocumentId,
+    ) -> LibraryResult<Vec<AnnotationRecord>> {
+        let mut statement = self.connection.prepare("SELECT id, document_id, author, body, anchor_kind, page, slide, paragraph, char_start, char_end, quote, stable, created_at_ms, updated_at_ms FROM document_annotations WHERE document_id = ?1 ORDER BY updated_at_ms DESC").map_err(database_error)?;
+        let rows = statement
+            .query_map(params![document_id.0], |row| {
+                Ok(AnnotationRecord {
+                    id: row.get(0)?,
+                    document_id: DocumentId(row.get(1)?),
+                    author: row.get(2)?,
+                    body: row.get(3)?,
+                    anchor: AnnotationAnchor {
+                        kind: row.get(4)?,
+                        page: row.get(5)?,
+                        slide: row.get(6)?,
+                        paragraph: row.get(7)?,
+                        char_start: row.get(8)?,
+                        char_end: row.get(9)?,
+                        quote: row.get(10)?,
+                        stable: row.get::<_, i64>(11)? != 0,
+                    },
+                    created_at_ms: row.get(12)?,
+                    updated_at_ms: row.get(13)?,
+                })
+            })
+            .map_err(database_error)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(database_error)
+    }
+
+    pub(crate) fn delete_annotation(&mut self, annotation_id: &str) -> LibraryResult<()> {
+        let changed = self
+            .connection
+            .execute(
+                "DELETE FROM document_annotations WHERE id = ?1",
+                params![annotation_id],
+            )
+            .map_err(database_error)?;
+        if changed == 0 {
+            return Err(LibraryError::new(
+                LibraryErrorCode::AnnotationNotFound,
+                "annotation was not found",
+            ));
+        }
+        Ok(())
     }
 
     fn ensure_document(&self, id: &DocumentId) -> LibraryResult<()> {
@@ -1055,6 +1475,23 @@ impl LibraryDatabase {
         Ok(())
     }
 
+    pub(crate) fn update_document_file_state(
+        &mut self,
+        document_id: &DocumentId,
+        content_sha256: &str,
+        size_bytes: u64,
+        modified_at_ms: i64,
+    ) -> LibraryResult<()> {
+        self.ensure_document(document_id)?;
+        self.connection
+            .execute(
+                "UPDATE documents SET content_sha256 = ?2, size_bytes = ?3, modified_at_ms = ?4, status = 'present', updated_at_ms = ?5 WHERE id = ?1",
+                params![document_id.0, content_sha256, sqlite_int(size_bytes), modified_at_ms, now_unix_ms()],
+            )
+            .map_err(database_error)?;
+        self.refresh_document_index(document_id)
+    }
+
     pub(crate) fn add_event(
         &mut self,
         scan_job_id: &ScanJobId,
@@ -1117,6 +1554,35 @@ fn fts_query(text: &str) -> String {
         .join(" AND ")
 }
 
+impl LibraryDatabase {
+    fn source_locator_for_search(&self, document: &DocumentRecord, search_text: Option<&str>) -> SourceLocator {
+        let candidate = search_text
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .and_then(|text| self.ocr_hit_locator(&document.id, text).ok().flatten())
+            .or_else(|| self.ocr_hit_locator(&document.id, "").ok().flatten());
+        if let Some(locator) = candidate {
+            return locator;
+        }
+        source_locator(document)
+    }
+
+    fn ocr_hit_locator(&self, document_id: &DocumentId, text: &str) -> LibraryResult<Option<SourceLocator>> {
+        let has_text = !text.is_empty();
+        let query = if has_text {
+            "SELECT page, points_json FROM ocr_text_boxes WHERE document_id = ?1 AND text LIKE ?2 ORDER BY page, id LIMIT 1"
+        } else {
+            "SELECT page, points_json FROM ocr_text_boxes WHERE document_id = ?1 ORDER BY page, id LIMIT 1"
+        };
+        let params: Vec<SqlValue> = if has_text { vec![SqlValue::Text(document_id.0.clone()), SqlValue::Text(format!("%{text}%"))] } else { vec![SqlValue::Text(document_id.0.clone())] };
+        if let Some((page, points_json)) = self.connection.query_row(query, params_from_iter(params.iter()), |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))).optional().map_err(database_error)? {
+            return Ok(Some(SourceLocator { kind: "page".to_owned(), page: Some(page.max(0) as u32), slide: None, paragraph: None, bounding_box: from_str(&points_json).ok(), available: true, reason: None }));
+        }
+        let page_query = if has_text { "SELECT page FROM ocr_pages WHERE document_id = ?1 AND text LIKE ?2 ORDER BY page LIMIT 1" } else { "SELECT page FROM ocr_pages WHERE document_id = ?1 ORDER BY page LIMIT 1" };
+        self.connection.query_row(page_query, params_from_iter(params.iter()), |row| row.get::<_, i64>(0)).optional().map_err(database_error).map(|page| page.map(|page| SourceLocator { kind: "page".to_owned(), page: Some(page.max(0) as u32), slide: None, paragraph: None, bounding_box: None, available: true, reason: None }))
+    }
+}
+
 fn source_locator(document: &DocumentRecord) -> SourceLocator {
     let kind = match document.format {
         DocumentFormat::Pdf => "page",
@@ -1132,6 +1598,7 @@ fn source_locator(document: &DocumentRecord) -> SourceLocator {
         page: None,
         slide: None,
         paragraph: None,
+        bounding_box: None,
         available: false,
         reason: Some("正文提取与页码、幻灯片、段落定位尚未实现".to_owned()),
     }
@@ -1168,6 +1635,21 @@ fn document_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DocumentRecord
     })
 }
 
+type OcrPageRow = (DocumentId, u32, String, String, Option<f32>, u32, u32, u32);
+
+fn ocr_page_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<OcrPageRow> {
+    Ok((
+        DocumentId(row.get(0)?),
+        row.get::<_, i64>(1)?.max(0) as u32,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+        row.get::<_, i64>(5)?.max(0) as u32,
+        row.get::<_, i64>(6)?.max(0) as u32,
+        row.get::<_, i64>(7)?.max(0) as u32,
+    ))
+}
+
 fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScanJobRecord> {
     Ok(ScanJobRecord {
         id: ScanJobId(row.get(0)?),
@@ -1196,6 +1678,27 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScanJobRecord> {
     })
 }
 
+fn ocr_job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<OcrJobRecord> {
+    Ok(OcrJobRecord {
+        id: OcrJobId(row.get(0)?),
+        document_id: DocumentId(row.get(1)?),
+        source_root_id: SourceRootId(row.get(2)?),
+        state: ScanJobState::parse(&row.get::<_, String>(3)?).ok_or(rusqlite::Error::InvalidQuery)?,
+        page_count: row.get::<_, i64>(4)?.max(0) as u32,
+        processed_count: row.get::<_, i64>(5)?.max(0) as u32,
+        failed_count: row.get::<_, i64>(6)?.max(0) as u32,
+        retry_count: row.get::<_, i64>(7)?.max(0) as u32,
+        error_code: row.get(8)?,
+        model_version: row.get(9)?,
+        runtime_version: row.get(10)?,
+        input_sha256: row.get(11)?,
+        duration_ms: row.get::<_, Option<i64>>(12)?.map(|value| value.max(0) as u64),
+        model_bytes: row.get::<_, i64>(13)?.max(0) as u64,
+        created_at_ms: row.get(14)?,
+        updated_at_ms: row.get(15)?,
+    })
+}
+
 fn database_error(error: rusqlite::Error) -> LibraryError {
     LibraryError::new(
         LibraryErrorCode::DatabaseFailed,
@@ -1217,8 +1720,8 @@ mod tests {
 
     use super::LibraryDatabase;
     use crate::library::model::{
-        DocumentFormat, DocumentId, DocumentRecord, DocumentStatus, ScanJobId, SearchQuery,
-        SourceKind,
+        DocumentFormat, DocumentId, DocumentRecord, DocumentStatus, OcrBoundingBox, OcrPoint,
+        OcrTextBox, ScanJobId, ScanJobState, SearchQuery, SourceKind,
     };
 
     fn insert_document(
@@ -1263,16 +1766,16 @@ mod tests {
             .connection()
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("version should be readable");
-        assert_eq!(version, 2);
+        assert_eq!(version, 4);
         let table_count: i64 = database
             .connection()
             .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('source_roots', 'documents', 'scan_jobs', 'scan_events')",
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('source_roots', 'documents', 'scan_jobs', 'scan_events', 'document_snapshots', 'document_annotations', 'ocr_jobs', 'ocr_pages', 'ocr_text_boxes', 'ocr_metrics')",
                 [],
                 |row| row.get(0),
             )
             .expect("tables should be queryable");
-        assert_eq!(table_count, 4);
+        assert_eq!(table_count, 10);
         let count: i64 = database
             .connection()
             .query_row(
@@ -1393,6 +1896,86 @@ mod tests {
                 .total,
             2
         );
+    }
+
+    #[test]
+    fn persists_ocr_fragments_indexes_text_and_returns_a_page_box_for_search() {
+        let mut database = LibraryDatabase::in_memory().expect("database should open");
+        let document_id = insert_document(
+            &mut database,
+            "doc-ocr",
+            "扫描合同.png",
+            DocumentFormat::Png,
+        );
+        database
+            .replace_ocr_page(
+                &document_id,
+                1,
+                "ocr",
+                "本合同包含中文和 English searchable text",
+                Some(0.93),
+                1200,
+                1800,
+                90,
+                &[OcrTextBox {
+                    text: "中文和 English searchable text".to_owned(),
+                    confidence: 0.93,
+                    bounding_box: OcrBoundingBox {
+                        points: vec![
+                            OcrPoint { x: 10, y: 20 },
+                            OcrPoint { x: 400, y: 20 },
+                            OcrPoint { x: 400, y: 80 },
+                            OcrPoint { x: 10, y: 80 },
+                        ],
+                    },
+                }],
+            )
+            .expect("OCR page should persist");
+        let fragments = database
+            .document_fragments(&document_id, Some(1))
+            .expect("fragment query should work");
+        assert_eq!(fragments.len(), 1);
+        assert_eq!(fragments[0].boxes.len(), 1);
+        assert_eq!(fragments[0].rotation_degrees, 90);
+        let results = database
+            .search(&SearchQuery {
+                text: Some("searchable".to_owned()),
+                limit: 20,
+                ..SearchQuery::default()
+            })
+            .expect("OCR FTS search should work");
+        assert_eq!(results.total, 1);
+        assert_eq!(results.items[0].source_locator.page, Some(1));
+        assert!(results.items[0].source_locator.bounding_box.is_some());
+        assert!(results.items[0].snippets.iter().any(|snippet| snippet.field == "ocr"));
+    }
+
+    #[test]
+    fn persists_ocr_job_metadata_and_task_progress() {
+        let mut database = LibraryDatabase::in_memory().expect("database should open");
+        let document_id = insert_document(
+            &mut database,
+            "doc-ocr-job",
+            "scan.jpg",
+            DocumentFormat::Jpg,
+        );
+        let job = database
+            .create_ocr_job(&document_id, "PP-OCRv6-tiny-2026.08", "ONNX Runtime CPU", 12_345)
+            .expect("OCR job should be queued");
+        assert_eq!(job.state, ScanJobState::Queued);
+        let running = database
+            .update_ocr_job(&job.id, ScanJobState::Running, 2, 0, 0, 0, None, None)
+            .expect("job should start");
+        assert_eq!(running.model_bytes, 12_345);
+        let progress = database
+            .update_running_ocr_progress(&job.id, 2, 1, 0)
+            .expect("progress should persist")
+            .expect("job is running");
+        assert_eq!(progress.processed_count, 1);
+        let completed = database
+            .update_ocr_job(&job.id, ScanJobState::Completed, 2, 2, 0, 0, None, Some(25))
+            .expect("job should complete");
+        assert_eq!(completed.duration_ms, Some(25));
     }
 
     #[test]

@@ -118,6 +118,54 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .organize-controls label { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 30px; gap: 6px; color: var(--muted); font-size: 11px; }
 .organize-controls select { grid-column: 1; width: 100%; min-width: 0; height: 31px; margin-top: 5px; padding: 0 7px; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 4px; font-size: 12px; }
 .organize-controls .icon-button { grid-column: 2; grid-row: 2; align-self: end; border: 1px solid var(--line); }
+.viewer-workspace { width: min(100%, 980px); min-height: 100%; display: flex; flex-direction: column; padding: 24px; }
+.viewer-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.viewer-header h1 { margin: 0 0 7px; font-size: 21px; line-height: 1.25; }
+.mode-control { display: inline-flex; min-width: 114px; height: 34px; border: 1px solid var(--line); background: var(--paper); border-radius: 4px; overflow: hidden; }
+.mode-control button { width: 38px; display: grid; place-items: center; color: var(--muted); background: transparent; cursor: pointer; }
+.mode-control button + button { border-left: 1px solid var(--line); }
+.mode-control button:hover, .mode-control button.is-active { color: #075d54; background: var(--accent-soft); }
+.mode-control svg { width: 16px; height: 16px; }
+.viewer-notice, .conflict-panel { display: flex; align-items: flex-start; gap: 9px; margin-top: 14px; padding: 10px 12px; color: #625739; background: #faf4e3; border: 1px solid #e6d6a8; border-radius: 4px; font-size: 12px; line-height: 1.5; }
+.viewer-notice svg { flex: 0 0 16px; width: 16px; height: 16px; margin-top: 1px; }
+.conflict-panel { display: block; color: #803327; background: #fff1ee; border-color: #e8b6ad; }
+.conflict-panel strong { font-size: 11px; }
+.conflict-panel p { margin: 4px 0 8px; }
+.conflict-panel div { display: flex; flex-wrap: wrap; gap: 6px; }
+.conflict-panel button, .annotation-pane > button, .workspace-empty--error button { min-height: 28px; padding: 0 9px; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; font-size: 11px; }
+.conflict-panel button:disabled { color: var(--quiet); cursor: not-allowed; }
+.viewer-body { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 16px; padding: 16px 0; overflow: auto; }
+.document-surface { min-width: 0; min-height: 370px; display: flex; border: 1px solid var(--line); background: var(--paper); border-radius: 4px; overflow: hidden; }
+.document-surface > textarea { width: 100%; min-height: 370px; resize: vertical; padding: 20px; color: var(--ink); background: transparent; border: 0; outline: 0; font: 14px/1.72 Consolas, "Microsoft YaHei UI", monospace; white-space: pre-wrap; }
+.document-surface > textarea:read-only { color: #565e5d; background: #fafbf9; }
+.viewer-fallback { width: 100%; min-height: 240px; display: grid; place-content: center; justify-items: center; gap: 8px; padding: 30px; color: var(--muted); text-align: center; }
+.viewer-fallback svg { width: 30px; height: 30px; color: #a8b0ad; }
+.viewer-fallback p, .viewer-fallback small { margin: 0; line-height: 1.55; }
+.annotation-pane { min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px; background: #f0f3ef; border: 1px solid var(--line); border-radius: 4px; }
+.annotation-heading { display: flex; align-items: center; justify-content: space-between; color: var(--ink); font-size: 12px; font-weight: 700; }
+.annotation-heading svg { width: 15px; height: 15px; color: var(--accent); }
+.annotation-pane > textarea { width: 100%; min-height: 70px; resize: vertical; padding: 7px; border: 1px solid var(--line); border-radius: 3px; background: var(--paper); font-size: 12px; }
+.annotation-pane > button { align-self: flex-start; color: var(--paper); background: var(--accent); border-color: var(--accent); }
+.annotation-pane > button:disabled { opacity: .55; cursor: not-allowed; }
+.annotation-list { display: grid; gap: 7px; overflow: auto; }
+.annotation-list > p { margin: 14px 0; color: var(--muted); font-size: 12px; text-align: center; }
+.annotation-list article { padding: 8px; color: #4e5655; background: var(--paper); border: 1px solid var(--line); border-radius: 3px; font-size: 11px; overflow-wrap: anywhere; }
+.annotation-list article strong { display: block; color: var(--accent); font-size: 10px; }
+.annotation-list article p { margin: 5px 0; line-height: 1.5; }
+.annotation-list article small { color: var(--muted); }
+.viewer-footer { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.viewer-footer > div { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.viewer-footer select { min-width: 0; max-width: 210px; height: 30px; color: var(--ink); border: 1px solid var(--line); border-radius: 4px; background: var(--paper); font-size: 11px; }
+.save-button { height: 30px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; color: var(--paper); background: var(--accent); border-radius: 4px; cursor: pointer; font-size: 12px; }
+.save-button svg { width: 15px; height: 15px; }
+.save-button:disabled { color: var(--quiet); background: #e1e5e1; cursor: not-allowed; }
+.pdf-viewer { width: 100%; min-height: 370px; background: #eef0ee; }
+.viewer-toolbar { height: 38px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 12px; color: var(--muted); background: var(--paper); border-bottom: 1px solid var(--line); font-size: 11px; }
+.viewer-toolbar > div { display: flex; }
+.pdf-canvas-wrap { display: grid; min-height: 330px; place-items: start center; padding: 18px; overflow: auto; }
+.pdf-canvas-wrap canvas { max-width: none; background: var(--paper); box-shadow: 0 1px 4px rgba(20, 30, 28, .16); }
+.viewer-loading { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 330px; color: var(--muted); font-size: 12px; }
+.viewer-loading svg { width: 16px; height: 16px; }
 .is-spinning { animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; } }

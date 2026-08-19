@@ -192,3 +192,12 @@ event="ipc_command_completed" command="health_check" outcome="success"
 ```
 
 禁止记录 API Key、用户文档正文、未经脱敏的绝对路径和完整 IPC 请求体。工期 0 只输出到进程日志，不引入日志文件轮转或远程采集。
+
+## 查看器、批注与安全写回契约（工期 4）
+
+- `document_open({ documentId, mode })` 是唯一的产品打开入口；前端只传稳定 `DocumentId`，Rust 从资料库解析授权 canonical path，不接受 React 拼接路径。`mode` 为 `read-only|edit|assist`，协助修改模式只记录用户修改，不接 AI。
+- `AdapterRegistry` 按 DocumentFormat 选择 Office、PDF.js、Markdown/TXT/CSV 或只读降级适配器。Office 复用 `EditorAdapter`，但桌面 ZetaOffice runtime bridge 未配置时必须明确只读降级；不得把浏览器 POC 结果当产品 runtime。
+- `document_open` 返回 `sessionId`、展示元数据、哈希、文本内容或受控 PDF base64 内容、能力和 `SourceLocator`。PDF.js 当前渲染第一页；Markdown/TXT/CSV 使用同一文本编辑器；图片和未支持格式只读。
+- `document_save` 只允许 Markdown/TXT/CSV。保存前重新读取源文件并比较打开时 SHA-256；哈希变化返回 `DOCUMENT_CONFLICT`，details 提供放弃、另存、比较、恢复动作。正常写回先在 `document_snapshots` 保存原始字节和哈希，再经过临时文件/备份替换并校验新哈希；失败尝试恢复备份。
+- `document_snapshots` 保存 `SnapshotRecord`，`document_restore_snapshot` 恢复前再次创建当前版本快照并做哈希冲突校验。`document_annotations` 保存页码、幻灯片、段落、字符范围、引用文本和 `stable` 标记；无法稳定定位时必须显示引用文本降级，不静默猜测位置。
+- 工期 4 的迁移增量为 v3（当前工作树后续迁移总版本可能为 v4）；新增 `document_open/save/close/list_snapshots/restore_snapshot/list_annotations/add_annotation/delete_annotation` IPC，沿用统一成功/失败信封和稳定错误码。

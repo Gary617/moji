@@ -47,7 +47,23 @@ pub fn run() {
             ipc::library::library_set_tag_membership,
             ipc::library::library_set_favorite,
             ipc::library::library_record_recent_use,
-            ipc::library::library_rebuild_search_index
+            ipc::library::library_rebuild_search_index,
+            ipc::library::library_ocr_model_status,
+            ipc::library::library_start_ocr,
+            ipc::library::library_ocr_status,
+            ipc::library::library_pause_ocr,
+            ipc::library::library_resume_ocr,
+            ipc::library::library_cancel_ocr,
+            ipc::library::library_retry_ocr,
+            ipc::library::library_document_fragments,
+            ipc::library::document_open,
+            ipc::library::document_save,
+            ipc::library::document_close,
+            ipc::library::document_list_snapshots,
+            ipc::library::document_restore_snapshot,
+            ipc::library::document_list_annotations,
+            ipc::library::document_add_annotation,
+            ipc::library::document_delete_annotation
         ])
         .run(tauri::generate_context!())
         .expect("failed to run the Tauri application");

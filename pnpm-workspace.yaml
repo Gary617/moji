@@ -9,3 +9,4 @@ minimumReleaseAgeExclude:
   - '@vitest/utils@4.1.11'
   - lucide-react@1.32.0
   - vitest@4.1.11
+  - '@napi-rs/canvas-linux-arm-gnueabihf@1.0.7'

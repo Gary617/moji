@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-工期 3：全文检索与资料组织（已实现）
+工期 4：查看器、编辑器适配、批注和版本快照（已实现，Office 产品 bridge 只读降级）
 
 ## 已完成
 
@@ -36,6 +36,13 @@
 ## 明确未做
 
 正文提取、OCR、Office/PDF 业务 UI、编辑器写回、账号、云同步、正式版本库和真实 ZetaOffice runtime bridge 均未实现。页码、幻灯片和段落来源定位当前明确标记未实现。不得把扫描器的 canonical path、SQLite 私有表或 `notify` 事件作为后续模块的替代数据入口。
+
+## 工期 4 结果
+
+- 已实现 Document ID 受控打开、统一 Adapter Registry、文本编辑器、PDF.js 第一页只读查看、Office 只读降级和只读/编辑/协助修改模式。
+- 已实现 migration v3 增量的 Snapshot/Annotation 表和 IPC（当前工作树后续迁移总版本为 v4）；文本写回前创建原始哈希快照，外部修改返回 `DOCUMENT_CONFLICT`，失败保留/恢复原文件。
+- Rust 文档服务测试 3/3 PASS；Rust 库单测总计 28/28 PASS（包含当前工作树已有的后续 OCR 用例）；前端 6 个测试文件、15/15 PASS；`pnpm build` PASS。
+- Office 产品桌面 bridge 尚未接入；PDF 页码、Office 幻灯片、正文段落稳定定位仍是明确降级，批注保留引用文本或页码锚点。
 
 ## 下一条命令
 

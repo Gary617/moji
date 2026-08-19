@@ -1,11 +1,19 @@
 import {
   Clock3,
+  Eye,
+  FileWarning,
   FolderKanban,
   FolderOpen,
+  History,
   LayoutList,
+  MessageSquarePlus,
+  PenLine,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Save,
   Search,
+  Sparkles,
   Star,
   Tag,
   X,
@@ -13,6 +21,20 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { healthCheck, type HealthCheckData } from "./ipc/health";
+import {
+  addAnnotation,
+  closeDocument,
+  listAnnotations,
+  listSnapshots,
+  openDocument,
+  restoreSnapshot,
+  saveDocument,
+  type AnnotationAnchor,
+  type AnnotationRecord,
+  type DocumentMode,
+  type DocumentOpenResult,
+  type SnapshotRecord,
+} from "./ipc/document";
 import {
   createCollection,
   createTag,
@@ -34,6 +56,8 @@ import {
   type TagRecord,
 } from "./ipc/library";
 import type { IpcError } from "./ipc/types";
+import { adapterRegistry } from "./document/registry";
+import { PdfViewer } from "./document/PdfViewer";
 
 type HealthState =
   | { kind: "checking" }
@@ -46,6 +70,12 @@ type LibraryState =
   | { kind: "loading" }
   | { kind: "ready"; items: SearchDocument[]; total: number; queryTimeMs: number }
   | { kind: "error"; error: IpcError };
+
+type WorkspaceState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "error"; error: IpcError }
+  | { kind: "ready"; opened: DocumentOpenResult; draft: string; error: IpcError | null; notice: string | null };
 
 const formatLabels: Record<DocumentFormat, string> = {
   docx: "DOCX",
@@ -101,6 +131,12 @@ export default function App() {
   const [tagId, setTagId] = useState("");
   const [modifiedWindow, setModifiedWindow] = useState("all");
   const [selected, setSelected] = useState<SearchDocument | null>(null);
+  const [workspace, setWorkspace] = useState<WorkspaceState>({ kind: "idle" });
+  const [mode, setMode] = useState<DocumentMode>("read-only");
+  const [annotations, setAnnotations] = useState<AnnotationRecord[]>([]);
+  const [snapshots, setSnapshots] = useState<SnapshotRecord[]>([]);
+  const [annotationBody, setAnnotationBody] = useState("");
+  const [snapshotChoice, setSnapshotChoice] = useState("");
   const [collectionChoice, setCollectionChoice] = useState("");
   const [tagChoice, setTagChoice] = useState("");
   const [isRebuilding, setIsRebuilding] = useState(false);
@@ -159,11 +195,80 @@ export default function App() {
   const chooseView = (next: View) => {
     setView(next);
     setSelected(null);
+    setWorkspace({ kind: "idle" });
+  };
+
+  const loadDocument = async (item: SearchDocument, requestedMode: DocumentMode) => {
+    setWorkspace({ kind: "loading" });
+    setAnnotations([]);
+    setSnapshots([]);
+    const response = await openDocument(item.document.id, requestedMode);
+    if (response.status === "error") {
+      setWorkspace({ kind: "error", error: response.error });
+      return;
+    }
+    const adapter = adapterRegistry.resolve(item.document.format);
+    const normalized = adapter.normalize(response.data);
+    const [annotationResponse, snapshotResponse] = await Promise.all([listAnnotations(item.document.id), listSnapshots(item.document.id)]);
+    setAnnotations(annotationResponse.status === "success" ? annotationResponse.data : []);
+    setSnapshots(snapshotResponse.status === "success" ? snapshotResponse.data : []);
+    setWorkspace({ kind: "ready", opened: { ...response.data, capabilities: normalized.capabilities, content: normalized.content }, draft: normalized.content ?? "", error: null, notice: normalized.warning });
   };
 
   const selectDocument = async (item: SearchDocument) => {
     setSelected(item);
     await recordRecentUse(item.document.id);
+    await loadDocument(item, mode);
+  };
+
+  const changeMode = async (nextMode: DocumentMode) => {
+    setMode(nextMode);
+    if (selected) await loadDocument(selected, nextMode);
+  };
+
+  const saveWorkspace = async () => {
+    if (workspace.kind !== "ready") return;
+    const { opened, draft } = workspace;
+    const response = await saveDocument(opened.document.id, opened.expectedSha256, draft, opened.mode);
+    if (response.status === "error") {
+      setWorkspace((current) => current.kind === "ready" ? { ...current, error: response.error } : current);
+      return;
+    }
+    const snapshotResponse = await listSnapshots(opened.document.id);
+    if (snapshotResponse.status === "success") setSnapshots(snapshotResponse.data);
+    setWorkspace((current) => current.kind === "ready" ? { ...current, opened: { ...current.opened, expectedSha256: response.data.newSha256 }, error: null, notice: `已创建快照 ${response.data.snapshotId.slice(0, 12)}` } : current);
+  };
+
+  const discardLocalChanges = async () => {
+    if (selected) await loadDocument(selected, mode);
+  };
+
+  const restoreSelectedSnapshot = async () => {
+    if (workspace.kind !== "ready" || !snapshotChoice) return;
+    const response = await restoreSnapshot(workspace.opened.document.id, snapshotChoice, workspace.opened.expectedSha256);
+    if (response.status === "error") {
+      setWorkspace((current) => current.kind === "ready" ? { ...current, error: response.error } : current);
+      return;
+    }
+    if (selected) await loadDocument(selected, mode);
+  };
+
+  const createAnnotation = async () => {
+    if (workspace.kind !== "ready" || !annotationBody.trim()) return;
+    const { opened, draft } = workspace;
+    const adapter = adapterRegistry.resolve(opened.document.format);
+    const anchor: AnnotationAnchor = opened.document.format === "pdf"
+      ? { kind: "page", page: 1, slide: null, paragraph: null, charStart: null, charEnd: null, quote: null, stable: true }
+      : adapter.kind === "text"
+        ? { kind: "character-range", page: null, slide: null, paragraph: 1, charStart: 0, charEnd: Math.min(draft.length, 160), quote: draft.slice(0, 160) || null, stable: false }
+        : { kind: "document", page: null, slide: null, paragraph: null, charStart: null, charEnd: null, quote: null, stable: false };
+    const response = await addAnnotation(opened.document.id, "本地用户", annotationBody.trim(), anchor);
+    if (response.status === "success") {
+      setAnnotations((items) => [response.data, ...items]);
+      setAnnotationBody("");
+    } else {
+      setWorkspace((current) => current.kind === "ready" ? { ...current, error: response.error } : current);
+    }
   };
 
   const toggleFavorite = async (event: React.MouseEvent, item: SearchDocument) => {
@@ -267,7 +372,28 @@ export default function App() {
       </section>
 
       <section className="workspace" aria-label="工作区">
-        {selected ? <div className="document-workspace"><div className={`workspace-file workspace-file--${selected.document.format}`}>{formatLabels[selected.document.format]}</div><div><p className="workspace-overline">{selected.document.status === "present" ? "已索引资料" : "文件不可用"}</p><h1>{selected.document.displayName}</h1><p className="workspace-path">{pathTail(selected.document.canonicalPath)}</p></div><div className="workspace-rule" /><div className="workspace-details"><div><span>来源定位</span><strong>{selected.sourceLocator.available ? selected.sourceLocator.kind : "未实现"}</strong><p>{selected.sourceLocator.reason}</p></div><div><span>索引状态</span><strong>{selected.indexState === "ready" ? "可搜索" : "索引异常"}</strong><p>正文与 OCR 字段为后续提取流程预留。</p></div></div><div className="organize-controls"><label>加入集合<select value={collectionChoice} onChange={(event) => setCollectionChoice(event.target.value)}><option value="">选择集合</option>{collections.filter((collection) => !selected.collections.some((current) => current.id === collection.id)).map((collection) => <option key={collection.id} value={collection.id}>{collection.name}</option>)}</select><button type="button" className="icon-button" aria-label="加入所选集合" title="加入集合" disabled={!collectionChoice} onClick={() => void addSelectedCollection()}><Plus aria-hidden="true" /></button></label><label>添加标签<select value={tagChoice} onChange={(event) => setTagChoice(event.target.value)}><option value="">选择标签</option>{tags.filter((tag) => !selected.tags.some((current) => current.id === tag.id)).map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</select><button type="button" className="icon-button" aria-label="添加所选标签" title="添加标签" disabled={!tagChoice} onClick={() => void addSelectedTag()}><Plus aria-hidden="true" /></button></label></div></div> : <div className="workspace-empty"><FolderOpen aria-hidden="true" /><h1>选择一份资料</h1><p>搜索结果会在这里显示来源和后续查看器入口。</p></div>}
+        {!selected && <div className="workspace-empty"><FolderOpen aria-hidden="true" /><h1>选择一份资料</h1><p>搜索结果会在这里打开受控查看器。</p></div>}
+        {selected && workspace.kind === "loading" && <div className="workspace-empty"><RefreshCw className="is-spinning" aria-hidden="true" /><h1>正在打开文档</h1><p>正在通过 Document ID 请求受控内容。</p></div>}
+        {selected && workspace.kind === "error" && <div className="workspace-empty workspace-empty--error"><FileWarning aria-hidden="true" /><h1>无法打开文档</h1><p>{workspace.error.code} · {workspace.error.message}</p><button type="button" onClick={() => void loadDocument(selected, mode)}>重试</button></div>}
+        {selected && workspace.kind === "ready" && (() => {
+          const adapter = adapterRegistry.resolve(workspace.opened.document.format);
+          const descriptor = adapter.descriptor(workspace.opened.document.format, workspace.opened.mode);
+          const canSave = workspace.opened.capabilities.canSave && !workspace.opened.readOnly;
+          return <div className="viewer-workspace">
+            <header className="viewer-header"><div><p className="workspace-overline">{descriptor.label}</p><h1>{selected.document.displayName}</h1><p className="workspace-path">{pathTail(selected.document.canonicalPath)}</p></div><div className="mode-control" aria-label="文档模式"><button type="button" className={mode === "read-only" ? "is-active" : ""} onClick={() => void changeMode("read-only")} title="只读"><Eye aria-hidden="true" /></button><button type="button" className={mode === "edit" ? "is-active" : ""} onClick={() => void changeMode("edit")} title="编辑"><PenLine aria-hidden="true" /></button><button type="button" className={mode === "assist" ? "is-active" : ""} onClick={() => void changeMode("assist")} title="协助修改"><Sparkles aria-hidden="true" /></button></div></header>
+            {(workspace.notice || workspace.opened.warnings.length > 0 || descriptor.fallbackReason) && <div className="viewer-notice"><FileWarning aria-hidden="true" /><span>{workspace.notice ?? workspace.opened.warnings[0] ?? descriptor.fallbackReason}</span></div>}
+            {workspace.error && <div className="conflict-panel" role="alert"><strong>{workspace.error.code}</strong><p>{workspace.error.message}</p><div><button type="button" onClick={() => void discardLocalChanges()}>放弃本地修改</button><button type="button" onClick={() => void loadDocument(selected, "read-only")}>比较当前文件</button><button type="button" onClick={() => setSnapshotChoice(snapshots[0]?.id ?? "")}>恢复快照</button><button type="button" disabled title="另存将保留为下一阶段的系统文件对话框入口">另存</button></div></div>}
+            <div className="viewer-body">
+              <div className="document-surface">
+                {adapter.kind === "text" && <textarea aria-label="文档正文" value={workspace.draft} readOnly={!canSave} onChange={(event) => setWorkspace((current) => current.kind === "ready" ? { ...current, draft: event.target.value, notice: null } : current)} />}
+                {adapter.kind === "pdf" && <PdfViewer binaryContent={workspace.opened.binaryContent} />}
+                {(adapter.kind === "office" || adapter.kind === "read-only") && <div className="viewer-fallback"><FileWarning aria-hidden="true" /><p>{descriptor.fallbackReason}</p><small>当前文档保持受控只读，批注可独立保存。</small></div>}
+              </div>
+              <aside className="annotation-pane"><div className="annotation-heading"><span>批注</span><MessageSquarePlus aria-hidden="true" /></div><textarea aria-label="新批注" value={annotationBody} onChange={(event) => setAnnotationBody(event.target.value)} placeholder="添加批注" /><button type="button" onClick={() => void createAnnotation()} disabled={!annotationBody.trim()}>保存批注</button><div className="annotation-list">{annotations.length === 0 ? <p>暂无批注</p> : annotations.map((annotation) => <article key={annotation.id}><strong>{annotation.anchor.kind}{annotation.anchor.page ? ` · 第 ${annotation.anchor.page} 页` : ""}</strong><p>{annotation.body}</p><small>{annotation.anchor.stable ? "稳定锚点" : "引用文本锚点"}</small></article>)}</div></aside>
+            </div>
+            <footer className="viewer-footer"><div><button type="button" className="icon-button" aria-label="查看快照" title="快照"><History aria-hidden="true" /></button><select aria-label="恢复快照" value={snapshotChoice} onChange={(event) => setSnapshotChoice(event.target.value)}><option value="">选择快照恢复</option>{snapshots.map((snapshot) => <option key={snapshot.id} value={snapshot.id}>{new Date(snapshot.createdAtMs).toLocaleString("zh-CN")} · {snapshot.byteLen} B</option>)}</select><button type="button" className="icon-button" aria-label="恢复所选快照" title="恢复快照" disabled={!snapshotChoice} onClick={() => void restoreSelectedSnapshot()}><RotateCcw aria-hidden="true" /></button></div><div><button type="button" className="icon-button" aria-label="关闭文档" title="关闭" onClick={() => { void closeDocument(selected.document.id); setWorkspace({ kind: "idle" }); setSelected(null); }}><X aria-hidden="true" /></button><button type="button" className="save-button" disabled={!canSave} onClick={() => void saveWorkspace()}><Save aria-hidden="true" />保存</button></div></footer>
+          </div>;
+        })()}
       </section>
     </main>
   );

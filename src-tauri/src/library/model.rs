@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 
 static IDENTIFIER_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-pub const LIBRARY_SCHEMA_VERSION: i64 = 2;
+pub const LIBRARY_SCHEMA_VERSION: i64 = 4;
 
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(transparent)]
@@ -23,6 +23,10 @@ pub struct SourceRootId(pub String);
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(transparent)]
 pub struct ScanJobId(pub String);
+
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct OcrJobId(pub String);
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -262,8 +266,45 @@ pub struct SourceLocator {
     pub page: Option<u32>,
     pub slide: Option<u32>,
     pub paragraph: Option<u32>,
+    pub bounding_box: Option<OcrBoundingBox>,
     pub available: bool,
     pub reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrPoint {
+    pub x: u32,
+    pub y: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrBoundingBox {
+    pub points: Vec<OcrPoint>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrTextBox {
+    pub text: String,
+    pub confidence: f32,
+    pub bounding_box: OcrBoundingBox,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentFragment {
+    pub document_id: DocumentId,
+    pub page: u32,
+    pub source: String,
+    pub text: String,
+    pub confidence: Option<f32>,
+    pub width: u32,
+    pub height: u32,
+    pub rotation_degrees: u32,
+    pub boxes: Vec<OcrTextBox>,
+    pub source_locator: SourceLocator,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -318,6 +359,85 @@ pub struct IndexRebuildSummary {
     pub duration_ms: u64,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DocumentMode {
+    ReadOnly,
+    Edit,
+    Assist,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentCapabilities {
+    pub can_edit: bool,
+    pub can_save: bool,
+    pub can_save_as: bool,
+    pub can_annotate: bool,
+    pub supports_page_anchor: bool,
+    pub supports_paragraph_anchor: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentOpenResult {
+    pub session_id: String,
+    pub document: DocumentRecord,
+    pub mode: DocumentMode,
+    pub read_only: bool,
+    pub expected_sha256: String,
+    pub content: Option<String>,
+    pub binary_content: Option<String>,
+    pub capabilities: DocumentCapabilities,
+    pub source_locator: SourceLocator,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSaveResult {
+    pub document_id: DocumentId,
+    pub snapshot_id: String,
+    pub new_sha256: String,
+    pub target_path: Option<String>,
+    pub source_preserved: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotRecord {
+    pub id: String,
+    pub document_id: DocumentId,
+    pub original_sha256: String,
+    pub created_at_ms: i64,
+    pub byte_len: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnnotationAnchor {
+    pub kind: String,
+    pub page: Option<u32>,
+    pub slide: Option<u32>,
+    pub paragraph: Option<u32>,
+    pub char_start: Option<u32>,
+    pub char_end: Option<u32>,
+    pub quote: Option<String>,
+    pub stable: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnnotationRecord {
+    pub id: String,
+    pub document_id: DocumentId,
+    pub author: String,
+    pub body: String,
+    pub anchor: AnnotationAnchor,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanJobRecord {
@@ -331,6 +451,37 @@ pub struct ScanJobRecord {
     pub error_code: Option<String>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrJobRecord {
+    pub id: OcrJobId,
+    pub document_id: DocumentId,
+    pub source_root_id: SourceRootId,
+    pub state: ScanJobState,
+    pub page_count: u32,
+    pub processed_count: u32,
+    pub failed_count: u32,
+    pub retry_count: u32,
+    pub error_code: Option<String>,
+    pub model_version: String,
+    pub runtime_version: String,
+    pub input_sha256: String,
+    pub duration_ms: Option<u64>,
+    pub model_bytes: u64,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrModelStatus {
+    pub model_version: String,
+    pub runtime_version: String,
+    pub available: bool,
+    pub model_bytes: u64,
+    pub missing_assets: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -384,6 +535,25 @@ pub enum LibraryErrorCode {
     ScanCancelled,
     WatcherUnavailable,
     LibraryUnavailable,
+    DocumentNotFound,
+    DocumentOpenFailed,
+    DocumentReadFailed,
+    DocumentWriteFailed,
+    DocumentConflict,
+    DocumentReadOnly,
+    DocumentLocked,
+    SnapshotFailed,
+    SnapshotNotFound,
+    AnnotationNotFound,
+    OcrJobNotFound,
+    OcrUnsupportedFormat,
+    OcrModelMissing,
+    OcrModelInvalid,
+    OcrRuntimeUnavailable,
+    OcrCorruptDocument,
+    OcrPdfRendererUnavailable,
+    OcrInputChanged,
+    OcrPageFailed,
 }
 
 impl LibraryErrorCode {
@@ -405,6 +575,25 @@ impl LibraryErrorCode {
             Self::ScanCancelled => "SCAN_CANCELLED",
             Self::WatcherUnavailable => "WATCHER_UNAVAILABLE",
             Self::LibraryUnavailable => "LIBRARY_UNAVAILABLE",
+            Self::DocumentNotFound => "DOCUMENT_NOT_FOUND",
+            Self::DocumentOpenFailed => "DOCUMENT_OPEN_FAILED",
+            Self::DocumentReadFailed => "DOCUMENT_READ_FAILED",
+            Self::DocumentWriteFailed => "DOCUMENT_WRITE_FAILED",
+            Self::DocumentConflict => "DOCUMENT_CONFLICT",
+            Self::DocumentReadOnly => "DOCUMENT_READ_ONLY",
+            Self::DocumentLocked => "DOCUMENT_LOCKED",
+            Self::SnapshotFailed => "SNAPSHOT_FAILED",
+            Self::SnapshotNotFound => "SNAPSHOT_NOT_FOUND",
+            Self::AnnotationNotFound => "ANNOTATION_NOT_FOUND",
+            Self::OcrJobNotFound => "OCR_JOB_NOT_FOUND",
+            Self::OcrUnsupportedFormat => "OCR_UNSUPPORTED_FORMAT",
+            Self::OcrModelMissing => "OCR_MODEL_MISSING",
+            Self::OcrModelInvalid => "OCR_MODEL_INVALID",
+            Self::OcrRuntimeUnavailable => "OCR_RUNTIME_UNAVAILABLE",
+            Self::OcrCorruptDocument => "OCR_CORRUPT_DOCUMENT",
+            Self::OcrPdfRendererUnavailable => "OCR_PDF_RENDERER_UNAVAILABLE",
+            Self::OcrInputChanged => "OCR_INPUT_CHANGED",
+            Self::OcrPageFailed => "OCR_PAGE_FAILED",
         }
     }
 }

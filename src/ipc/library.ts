@@ -59,8 +59,64 @@ export interface SourceLocator {
   page: number | null;
   slide: number | null;
   paragraph: number | null;
+  boundingBox: OcrBoundingBox | null;
   available: boolean;
   reason: string | null;
+}
+
+export interface OcrPoint {
+  x: number;
+  y: number;
+}
+
+export interface OcrBoundingBox {
+  points: OcrPoint[];
+}
+
+export interface OcrTextBox {
+  text: string;
+  confidence: number;
+  boundingBox: OcrBoundingBox;
+}
+
+export interface DocumentFragment {
+  documentId: string;
+  page: number;
+  source: "ocr" | "text_layer" | "blank";
+  text: string;
+  confidence: number | null;
+  width: number;
+  height: number;
+  rotationDegrees: number;
+  boxes: OcrTextBox[];
+  sourceLocator: SourceLocator;
+}
+
+export interface OcrJobRecord {
+  id: string;
+  documentId: string;
+  sourceRootId: string;
+  state: "queued" | "running" | "paused" | "cancelled" | "failed" | "completed";
+  pageCount: number;
+  processedCount: number;
+  failedCount: number;
+  retryCount: number;
+  errorCode: string | null;
+  modelVersion: string;
+  runtimeVersion: string;
+  inputSha256: string;
+  durationMs: number | null;
+  modelBytes: number;
+  createdAtMs: number;
+  updatedAtMs: number;
+}
+
+export interface OcrModelStatus {
+  modelVersion: string;
+  runtimeVersion: string;
+  available: boolean;
+  modelBytes: number;
+  missingAssets: string[];
 }
 
 export interface SearchDocument {
@@ -166,4 +222,36 @@ export function recordRecentUse(documentId: string): Promise<IpcResponse<void>> 
 
 export function rebuildSearchIndex(): Promise<IpcResponse<IndexRebuildSummary>> {
   return call("library_rebuild_search_index");
+}
+
+export function ocrModelStatus(): Promise<IpcResponse<OcrModelStatus>> {
+  return call("library_ocr_model_status");
+}
+
+export function startOcr(documentId: string): Promise<IpcResponse<OcrJobRecord>> {
+  return call("library_start_ocr", { documentId });
+}
+
+export function ocrStatus(ocrJobId: string): Promise<IpcResponse<OcrJobRecord>> {
+  return call("library_ocr_status", { ocrJobId });
+}
+
+export function pauseOcr(ocrJobId: string): Promise<IpcResponse<OcrJobRecord>> {
+  return call("library_pause_ocr", { ocrJobId });
+}
+
+export function resumeOcr(ocrJobId: string): Promise<IpcResponse<OcrJobRecord>> {
+  return call("library_resume_ocr", { ocrJobId });
+}
+
+export function cancelOcr(ocrJobId: string): Promise<IpcResponse<OcrJobRecord>> {
+  return call("library_cancel_ocr", { ocrJobId });
+}
+
+export function retryOcr(ocrJobId: string): Promise<IpcResponse<OcrJobRecord>> {
+  return call("library_retry_ocr", { ocrJobId });
+}
+
+export function documentFragments(documentId: string, page?: number): Promise<IpcResponse<DocumentFragment[]>> {
+  return call("library_document_fragments", { documentId, page });
 }

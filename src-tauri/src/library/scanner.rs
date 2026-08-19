@@ -26,6 +26,7 @@ use super::{
 pub(crate) struct LibraryService {
     pub(crate) database: LibraryDatabase,
     watchers: HashMap<SourceRootId, LibraryWatcher>,
+    pub(crate) ocr_model_dir: PathBuf,
 }
 
 impl LibraryService {
@@ -38,13 +39,19 @@ impl LibraryService {
     }
 
     fn open_with_recovery(path: impl AsRef<Path>, recover_jobs: bool) -> LibraryResult<Self> {
-        let mut database = LibraryDatabase::open(path)?;
+        let database_path = path.as_ref().to_path_buf();
+        let mut database = LibraryDatabase::open(&database_path)?;
         if recover_jobs {
             database.recover_running_jobs()?;
+            database.recover_running_ocr_jobs()?;
         }
         Ok(Self {
             database,
             watchers: HashMap::new(),
+            ocr_model_dir: database_path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join("ocr-models"),
         })
     }
 
@@ -52,6 +59,7 @@ impl LibraryService {
         Ok(Self {
             database: LibraryDatabase::in_memory()?,
             watchers: HashMap::new(),
+            ocr_model_dir: std::env::temp_dir().join("moji-ocr-models"),
         })
     }
 
