@@ -1,0 +1,20 @@
+node_modules/
+dist/
+coverage/
+src-tauri/target/
+src-tauri/target-editor-poc*/
+src-tauri/gen/
+src-tauri/icons/android/
+src-tauri/icons/ios/
+src-tauri/icons/icon.icns
+_docx_render/
+*.log
+docs/editor-poc/results.node.*
+.DS_Store
+Thumbs.db
+
+# Build and release artifacts (generate locally or publish via Releases)
+*.exe
+*.msi
+*.zip
+*.dmg
