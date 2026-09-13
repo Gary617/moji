@@ -11,7 +11,7 @@
 | `react`, `react-dom` | 19.2.8 | MIT |
 | `pdfjs-dist` | 6.2.108 | Apache-2.0 |
 | `lucide-react` | 1.32.0 | ISC |
-| `zetajs` | 1.2.0 | MIT |
+| `fflate` | 0.8.2 | MIT |
 | `vite`, `typescript`, `vitest` | 8.2.1 / 7.0.2 / 4.1.11 | MIT |
 | `@testing-library/*`, `jsdom` | pinned in `package.json` | MIT |
 
@@ -20,6 +20,7 @@
 | Dependency | Version | License / source |
 | --- | --- | --- |
 | `tauri`, `tauri-build` | 2.11.5 / 2.6.3 | Apache-2.0 OR MIT |
+| `tauri-plugin-dialog` | 2.7.2 | Apache-2.0 OR MIT |
 | `base64` | 0.22.1 | MIT OR Apache-2.0 |
 | `rusqlite` / bundled SQLite | 0.40.2 / lockfile | MIT; SQLite public domain; production feature requires SQLCipher (BSD-style) |
 | `reqwest` | 0.13.4 | MIT OR Apache-2.0 |
@@ -31,13 +32,14 @@
 | `serde`, `serde_json` | 1.0.229 / 1.0.151 | MIT OR Apache-2.0 |
 | `sha2` | 0.11.0 | MIT OR Apache-2.0 |
 | `getrandom` | 0.3.4 | MIT OR Apache-2.0 |
+| `zip` | 6.0.0 | MIT |
 | `windows-sys` | 0.61.2 | MIT OR Apache-2.0 |
 | `tracing`, `tracing-subscriber` | 0.1.44 / 0.3.23 | MIT |
 
 ## Runtime assets
 
 - WebView2 Runtime is a Microsoft redistributable dependency and must follow its Microsoft license and evergreen runtime terms.
-- The editor POC references the ZetaOffice CDN at runtime and does not redistribute its binary; production must pin or self-host the exact build and record SHA-256 before release.
+- DOCX basic editor uses the bundled `fflate` JavaScript dependency only. It does not use a network runtime, ZetaOffice, LibreOffice, or Microsoft Office.
 - PP-OCR/ONNX model and runtime files are offline installation assets, not committed to this repository; their upstream licenses and hashes must be attached to the release artifact.
 - The release build uses `rusqlite/bundled-sqlcipher-vendored-openssl`; the vendored OpenSSL source is built by Cargo and remains subject to its upstream Apache-2.0 license and NOTICE requirements.
 - NSIS is the Windows installer target. Its installer/runtime licensing and any bundled WebView2 redistributable terms must be attached to the final installer artifact.

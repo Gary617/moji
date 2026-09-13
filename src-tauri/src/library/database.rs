@@ -5,78 +5,71 @@ use std::{
 
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value as SqlValue};
 use serde_json::{Value, from_str, to_string};
+use sha2::{Digest, Sha256};
 
 use super::model::{
-    AiActionRecord, AnnotationAnchor, AnnotationRecord, CollectionId, CollectionRecord,
-    DocumentFormat, DocumentFragment, DocumentId, DocumentRecord, DocumentStatus,
-    IndexRebuildSummary, LIBRARY_SCHEMA_VERSION, LibraryError, LibraryErrorCode, LibraryResult,
-    OcrJobId, OcrJobRecord, OcrTextBox, ScanEvent, ScanEventKind, ScanJobId, ScanJobRecord,
-    ScanJobState, SearchDocument, SearchQuery, SearchResults, SearchSnippet, SnapshotRecord,
-    SourceKind, SourceLocator, SourceRegistration, SourceRootId, SourceRootRecord, TagId,
-    TagRecord, new_identifier, now_unix_ms,
+    AiActionInput, AiActionRecord, AnnotationAnchor, AnnotationRecord, CollectionId,
+    CollectionRecord, DocumentFormat, DocumentFragment, DocumentId, DocumentRecord, DocumentStatus,
+    LIBRARY_SCHEMA_VERSION, LibraryError, LibraryErrorCode, LibraryResult, OcrJobId, OcrJobRecord,
+    OcrJobUpdate, OcrPageUpdate, OcrTextBox, ScanEvent, ScanEventKind, ScanJobId, ScanJobRecord,
+    ScanJobState, ScanJobUpdate, SearchDocument, SearchQuery, SearchResults, SearchSnippet,
+    SnapshotRecord, SourceKind, SourceLocator, SourceRegistration, SourceRootId, SourceRootRecord,
+    TagId, TagRecord, new_identifier, now_unix_ms,
 };
 use crate::crypto::load_or_create_database_key;
 
 pub(crate) struct LibraryDatabase {
     connection: Connection,
+    audit_key: Vec<u8>,
+}
+
+const AI_AUDIT_RETENTION_LIMIT: i64 = 10_000;
+const AI_AUDIT_ZERO_HASH: [u8; 32] = [0; 32];
+
+#[derive(Clone)]
+struct AiAuditState {
+    first_retained_index: i64,
+    last_index: i64,
+    prior_hash: Vec<u8>,
+    last_hash: Vec<u8>,
+    state_hmac: Vec<u8>,
 }
 
 impl LibraryDatabase {
     pub(crate) fn open(path: impl AsRef<Path>) -> LibraryResult<Self> {
         let path = path.as_ref();
-        let key = load_or_create_database_key(path).map_err(|_| {
+        let audit_key = load_or_create_database_key(path).map_err(|_| {
             LibraryError::new(
                 LibraryErrorCode::MigrationFailed,
-                "encrypted library database key is unavailable",
+                "library audit key is unavailable",
             )
         })?;
         let connection = Connection::open(path).map_err(database_error)?;
-        let key_hex = key
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        connection
-            .execute_batch(&format!(
-                "PRAGMA key = \"x'{key_hex}'\"; PRAGMA cipher_compatibility = 4; PRAGMA cipher_memory_security = ON;"
-            ))
-            .map_err(|_| {
-                LibraryError::new(
-                    LibraryErrorCode::MigrationFailed,
-                    "encrypted library database could not be opened",
-                )
-            })?;
-        #[cfg(not(test))]
-        {
-            let cipher_version: Option<String> = connection
-                .query_row("PRAGMA cipher_version", [], |row| row.get(0))
-                .optional()
-                .map_err(|_| {
-                    LibraryError::new(
-                        LibraryErrorCode::MigrationFailed,
-                        "encrypted library database could not be verified",
-                    )
-                })?;
-            if cipher_version.is_none() {
-                return Err(LibraryError::new(
-                    LibraryErrorCode::MigrationFailed,
-                    "SQLCipher support is required for the local library database",
-                ));
-            }
-        }
         connection
             .busy_timeout(Duration::from_secs(5))
             .map_err(database_error)?;
-        let mut database = Self { connection };
+        // Keep reads responsive while a background scan writes metadata and FTS rows.
+        connection
+            .execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA temp_store = MEMORY;")
+            .map_err(database_error)?;
+        let mut database = Self {
+            connection,
+            audit_key,
+        };
         database.migrate()?;
         Ok(database)
     }
 
+    #[cfg(test)]
     pub(crate) fn in_memory() -> LibraryResult<Self> {
         let connection = Connection::open_in_memory().map_err(database_error)?;
         connection
             .busy_timeout(Duration::from_secs(5))
             .map_err(database_error)?;
-        let mut database = Self { connection };
+        let mut database = Self {
+            connection,
+            audit_key: vec![0; 32],
+        };
         database.migrate()?;
         Ok(database)
     }
@@ -358,43 +351,96 @@ impl LibraryDatabase {
                     "#,
                 )
                 .map_err(database_error)?;
+            version = 5;
+        }
+        if version == 5 {
+            self.migrate_ai_audit_chain()?;
+            version = 6;
+        }
+        if version == 6 {
+            self.connection
+                .execute_batch(
+                    r#"
+                    ALTER TABLE scan_jobs ADD COLUMN total_count INTEGER NOT NULL DEFAULT 0;
+                    ALTER TABLE scan_jobs ADD COLUMN current_file_name TEXT;
+                    ALTER TABLE scan_jobs ADD COLUMN started_at_ms INTEGER;
+                    ALTER TABLE scan_jobs ADD COLUMN completed_at_ms INTEGER;
+                    PRAGMA user_version = 7;
+                    "#,
+                )
+                .map_err(database_error)?;
+            version = 7;
+        }
+        if version == 7 {
+            self.connection
+                .execute_batch(
+                    r#"
+                    ALTER TABLE document_usage ADD COLUMN is_removed INTEGER NOT NULL DEFAULT 0;
+                    CREATE INDEX IF NOT EXISTS document_usage_removed_idx
+                        ON document_usage(is_removed, document_id);
+                    PRAGMA user_version = 8;
+                    "#,
+                )
+                .map_err(database_error)?;
         }
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn connection(&self) -> &Connection {
         &self.connection
     }
 
     pub(crate) fn record_ai_action(
         &self,
-        id: &str,
-        session_id: &str,
-        document_id: Option<&DocumentId>,
-        permission: &str,
-        tool: &str,
-        outcome: &str,
-        details: &Value,
+        input: AiActionInput<'_>,
     ) -> LibraryResult<AiActionRecord> {
         let created_at_ms = now_unix_ms();
-        let details_json = to_string(details).map_err(|_| {
+        let details_json = to_string(input.details).map_err(|_| {
             LibraryError::new(
                 LibraryErrorCode::DatabaseFailed,
                 "AI audit details could not be serialized",
             )
         })?;
-        self.connection.execute(
-            "INSERT INTO ai_actions (id, session_id, document_id, permission, tool, outcome, details_json, created_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![id, session_id, document_id.map(|value| &value.0), permission, tool, outcome, details_json, created_at_ms],
-        ).map_err(database_error)?;
+        let mut state = self.verify_ai_audit_chain()?;
+        let chain_index = state.last_index + 1;
+        let entry_hash = ai_audit_entry_hash(
+            &self.audit_key,
+            &state.last_hash,
+            chain_index,
+            input.id,
+            input.session_id,
+            input.document_id.map(|value| value.0.as_str()),
+            input.permission,
+            input.tool,
+            input.outcome,
+            &details_json,
+            created_at_ms,
+        );
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .map_err(database_error)?;
+        transaction
+            .execute(
+                "INSERT INTO ai_actions (id, session_id, document_id, permission, tool, outcome, details_json, created_at_ms, chain_index, entry_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![input.id, input.session_id, input.document_id.map(|value| &value.0), input.permission, input.tool, input.outcome, details_json, created_at_ms, chain_index, entry_hash],
+            )
+            .map_err(database_error)?;
+        state.last_index = chain_index;
+        state.last_hash = entry_hash;
+        prune_ai_audit_actions(&transaction, &mut state, AI_AUDIT_RETENTION_LIMIT)?;
+        state.state_hmac = ai_audit_state_hmac(&self.audit_key, &state);
+        store_ai_audit_state(&transaction, &state)?;
+        transaction.commit().map_err(database_error)?;
         Ok(AiActionRecord {
-            id: id.to_owned(),
-            session_id: session_id.to_owned(),
-            document_id: document_id.cloned(),
-            permission: permission.to_owned(),
-            tool: tool.to_owned(),
-            outcome: outcome.to_owned(),
-            details: details.clone(),
+            id: input.id.to_owned(),
+            session_id: input.session_id.to_owned(),
+            document_id: input.document_id.cloned(),
+            permission: input.permission.to_owned(),
+            tool: input.tool.to_owned(),
+            outcome: input.outcome.to_owned(),
+            details: input.details.clone(),
             created_at_ms,
         })
     }
@@ -403,6 +449,7 @@ impl LibraryDatabase {
         &self,
         session_id: Option<&str>,
     ) -> LibraryResult<Vec<AiActionRecord>> {
+        self.verify_ai_audit_chain()?;
         let mut statement = if session_id.is_some() {
             self.connection.prepare("SELECT id, session_id, document_id, permission, tool, outcome, details_json, created_at_ms FROM ai_actions WHERE session_id = ?1 ORDER BY created_at_ms DESC")
         } else {
@@ -415,6 +462,196 @@ impl LibraryDatabase {
         }
         .map_err(database_error)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(database_error)
+    }
+
+    fn migrate_ai_audit_chain(&mut self) -> LibraryResult<()> {
+        let audit_key = self.audit_key.clone();
+        let transaction = self.connection.transaction().map_err(database_error)?;
+        transaction
+            .execute_batch(
+                r#"
+                ALTER TABLE ai_actions ADD COLUMN chain_index INTEGER;
+                ALTER TABLE ai_actions ADD COLUMN entry_hash BLOB;
+                CREATE UNIQUE INDEX ai_actions_chain_index_idx ON ai_actions(chain_index);
+                CREATE TABLE ai_audit_state (
+                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                    first_retained_index INTEGER NOT NULL,
+                    last_index INTEGER NOT NULL,
+                    prior_hash BLOB NOT NULL,
+                    last_hash BLOB NOT NULL,
+                    state_hmac BLOB NOT NULL
+                );
+                "#,
+            )
+            .map_err(database_error)?;
+        let entries = {
+            let mut statement = transaction
+                .prepare("SELECT id, session_id, document_id, permission, tool, outcome, details_json, created_at_ms FROM ai_actions ORDER BY created_at_ms ASC, rowid ASC")
+                .map_err(database_error)?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, i64>(7)?,
+                    ))
+                })
+                .map_err(database_error)?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(database_error)?
+        };
+        let mut previous_hash = AI_AUDIT_ZERO_HASH.to_vec();
+        let mut last_index = 0;
+        for (offset, entry) in entries.iter().enumerate() {
+            let chain_index = offset as i64 + 1;
+            let entry_hash = ai_audit_entry_hash(
+                &audit_key,
+                &previous_hash,
+                chain_index,
+                &entry.0,
+                &entry.1,
+                entry.2.as_deref(),
+                &entry.3,
+                &entry.4,
+                &entry.5,
+                &entry.6,
+                entry.7,
+            );
+            transaction
+                .execute(
+                    "UPDATE ai_actions SET chain_index = ?1, entry_hash = ?2 WHERE id = ?3",
+                    params![chain_index, entry_hash, entry.0],
+                )
+                .map_err(database_error)?;
+            previous_hash = entry_hash;
+            last_index = chain_index;
+        }
+        let mut state = AiAuditState {
+            first_retained_index: 1,
+            last_index,
+            prior_hash: AI_AUDIT_ZERO_HASH.to_vec(),
+            last_hash: previous_hash,
+            state_hmac: Vec::new(),
+        };
+        state.state_hmac = ai_audit_state_hmac(&audit_key, &state);
+        store_ai_audit_state(&transaction, &state)?;
+        transaction
+            .execute_batch("PRAGMA user_version = 6;")
+            .map_err(database_error)?;
+        transaction.commit().map_err(database_error)
+    }
+
+    fn verify_ai_audit_chain(&self) -> LibraryResult<AiAuditState> {
+        let state = self
+            .connection
+            .query_row(
+                "SELECT first_retained_index, last_index, prior_hash, last_hash, state_hmac FROM ai_audit_state WHERE singleton = 1",
+                [],
+                |row| {
+                    Ok(AiAuditState {
+                        first_retained_index: row.get(0)?,
+                        last_index: row.get(1)?,
+                        prior_hash: row.get(2)?,
+                        last_hash: row.get(3)?,
+                        state_hmac: row.get(4)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(database_error)?
+            .ok_or_else(audit_integrity_error)?;
+        if state.first_retained_index < 1
+            || state.last_index < state.first_retained_index - 1
+            || !is_audit_hash(&state.prior_hash)
+            || !is_audit_hash(&state.last_hash)
+            || !constant_time_eq(
+                &state.state_hmac,
+                &ai_audit_state_hmac(&self.audit_key, &state),
+            )
+        {
+            return Err(audit_integrity_error());
+        }
+        let mut statement = self
+            .connection
+            .prepare("SELECT chain_index, id, session_id, document_id, permission, tool, outcome, details_json, created_at_ms, entry_hash FROM ai_actions ORDER BY chain_index ASC")
+            .map_err(database_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, i64>(8)?,
+                    row.get::<_, Vec<u8>>(9)?,
+                ))
+            })
+            .map_err(database_error)?;
+        let mut previous_hash = state.prior_hash.clone();
+        let mut row_count = 0_i64;
+        for (expected_index, row) in (state.first_retained_index..).zip(rows) {
+            let (
+                chain_index,
+                id,
+                session_id,
+                document_id,
+                permission,
+                tool,
+                outcome,
+                details_json,
+                created_at_ms,
+                entry_hash,
+            ) = row.map_err(database_error)?;
+            let expected_hash = ai_audit_entry_hash(
+                &self.audit_key,
+                &previous_hash,
+                chain_index,
+                &id,
+                &session_id,
+                document_id.as_deref(),
+                &permission,
+                &tool,
+                &outcome,
+                &details_json,
+                created_at_ms,
+            );
+            if chain_index != expected_index
+                || !is_audit_hash(&entry_hash)
+                || !constant_time_eq(&entry_hash, &expected_hash)
+            {
+                return Err(audit_integrity_error());
+            }
+            previous_hash = entry_hash;
+            row_count += 1;
+        }
+        let expected_count = (state.last_index - state.first_retained_index + 1).max(0);
+        if row_count != expected_count || !constant_time_eq(&previous_hash, &state.last_hash) {
+            return Err(audit_integrity_error());
+        }
+        Ok(state)
+    }
+
+    #[cfg(test)]
+    fn enforce_ai_action_retention(&self, retention_limit: i64) -> LibraryResult<()> {
+        let mut state = self.verify_ai_audit_chain()?;
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .map_err(database_error)?;
+        if prune_ai_audit_actions(&transaction, &mut state, retention_limit)? {
+            state.state_hmac = ai_audit_state_hmac(&self.audit_key, &state);
+            store_ai_audit_state(&transaction, &state)?;
+        }
+        transaction.commit().map_err(database_error)
     }
 
     pub(crate) fn collections(&self) -> LibraryResult<Vec<CollectionRecord>> {
@@ -470,10 +707,16 @@ impl LibraryDatabase {
                 "collection name cannot be empty",
             ));
         }
+        if name.chars().count() > 80 {
+            return Err(LibraryError::new(
+                LibraryErrorCode::InvalidArgument,
+                "collection name is too long",
+            ));
+        }
         if let Some(existing) = self
             .connection
             .query_row(
-                "SELECT id, name, created_at_ms FROM collections WHERE name = ?1",
+                "SELECT id, name, created_at_ms FROM collections WHERE name = ?1 COLLATE NOCASE",
                 params![name],
                 |row| {
                     Ok(CollectionRecord {
@@ -510,10 +753,16 @@ impl LibraryDatabase {
                 "tag name cannot be empty",
             ));
         }
+        if name.chars().count() > 80 {
+            return Err(LibraryError::new(
+                LibraryErrorCode::InvalidArgument,
+                "tag name is too long",
+            ));
+        }
         if let Some(existing) = self
             .connection
             .query_row(
-                "SELECT id, name, created_at_ms FROM tags WHERE name = ?1",
+                "SELECT id, name, created_at_ms FROM tags WHERE name = ?1 COLLATE NOCASE",
                 params![name],
                 |row| {
                     Ok(TagRecord {
@@ -604,6 +853,30 @@ impl LibraryDatabase {
             .execute(
                 "INSERT INTO document_usage (document_id, is_favorite, updated_at_ms) VALUES (?1, ?2, ?3) ON CONFLICT(document_id) DO UPDATE SET is_favorite = excluded.is_favorite, updated_at_ms = excluded.updated_at_ms",
                 params![document_id.0, i64::from(favorite), now_unix_ms()],
+            )
+            .map_err(database_error)?;
+        Ok(())
+    }
+
+    pub(crate) fn remove_from_library(&mut self, document_id: &DocumentId) -> LibraryResult<()> {
+        self.ensure_document(document_id)?;
+        self.connection
+            .execute(
+                "INSERT INTO document_usage (document_id, is_favorite, last_used_at_ms, is_removed, updated_at_ms) VALUES (?1, 0, NULL, 1, ?2) ON CONFLICT(document_id) DO UPDATE SET is_favorite = 0, last_used_at_ms = NULL, is_removed = 1, updated_at_ms = excluded.updated_at_ms",
+                params![document_id.0, now_unix_ms()],
+            )
+            .map_err(database_error)?;
+        Ok(())
+    }
+
+    pub(crate) fn restore_from_library_scan(
+        &mut self,
+        document_id: &DocumentId,
+    ) -> LibraryResult<()> {
+        self.connection
+            .execute(
+                "UPDATE document_usage SET is_removed = 0, updated_at_ms = ?2 WHERE document_id = ?1",
+                params![document_id.0, now_unix_ms()],
             )
             .map_err(database_error)?;
         Ok(())
@@ -710,18 +983,11 @@ impl LibraryDatabase {
 
     pub(crate) fn update_ocr_job(
         &mut self,
-        id: &OcrJobId,
-        state: ScanJobState,
-        page_count: u32,
-        processed_count: u32,
-        failed_count: u32,
-        retry_count: u32,
-        error_code: Option<&str>,
-        duration_ms: Option<u64>,
+        update: OcrJobUpdate<'_>,
     ) -> LibraryResult<OcrJobRecord> {
         let changed = self.connection.execute(
             "UPDATE ocr_jobs SET state = ?2, page_count = ?3, processed_count = ?4, failed_count = ?5, retry_count = ?6, error_code = ?7, duration_ms = ?8, updated_at_ms = ?9 WHERE id = ?1",
-            params![id.0, state.as_str(), i64::from(page_count), i64::from(processed_count), i64::from(failed_count), i64::from(retry_count), error_code, duration_ms.map(|value| sqlite_int(value)), now_unix_ms()],
+            params![update.id.0, update.state.as_str(), i64::from(update.page_count), i64::from(update.processed_count), i64::from(update.failed_count), i64::from(update.retry_count), update.error_code, update.duration_ms.map(sqlite_int), now_unix_ms()],
         ).map_err(database_error)?;
         if changed == 0 {
             return Err(LibraryError::new(
@@ -729,7 +995,7 @@ impl LibraryDatabase {
                 "OCR job was not found",
             ));
         }
-        self.ocr_job(id)?.ok_or_else(|| {
+        self.ocr_job(update.id)?.ok_or_else(|| {
             LibraryError::new(LibraryErrorCode::OcrJobNotFound, "OCR job was not found")
         })
     }
@@ -776,19 +1042,8 @@ impl LibraryDatabase {
         self.refresh_ocr_search_content(document_id)
     }
 
-    pub(crate) fn replace_ocr_page(
-        &mut self,
-        document_id: &DocumentId,
-        page: u32,
-        source: &str,
-        text: &str,
-        confidence: Option<f32>,
-        width: u32,
-        height: u32,
-        rotation_degrees: u32,
-        boxes: &[OcrTextBox],
-    ) -> LibraryResult<()> {
-        if !matches!(source, "ocr" | "text_layer" | "blank") {
+    pub(crate) fn replace_ocr_page(&mut self, update: OcrPageUpdate<'_>) -> LibraryResult<()> {
+        if !matches!(update.source, "ocr" | "text_layer" | "blank") {
             return Err(LibraryError::new(
                 LibraryErrorCode::InvalidArgument,
                 "OCR page source is invalid",
@@ -798,21 +1053,21 @@ impl LibraryDatabase {
         transaction
             .execute(
                 "DELETE FROM ocr_pages WHERE document_id = ?1 AND page = ?2",
-                params![document_id.0, i64::from(page)],
+                params![update.document_id.0, i64::from(update.page)],
             )
             .map_err(database_error)?;
         transaction.execute(
             "INSERT INTO ocr_pages (document_id, page, source, text, confidence, width, height, rotation_degrees) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![document_id.0, i64::from(page), source, text, confidence, i64::from(width), i64::from(height), i64::from(rotation_degrees)],
+            params![update.document_id.0, i64::from(update.page), update.source, update.text, update.confidence, i64::from(update.width), i64::from(update.height), i64::from(update.rotation_degrees)],
         ).map_err(database_error)?;
-        for text_box in boxes {
+        for text_box in update.boxes {
             transaction.execute(
                 "INSERT INTO ocr_text_boxes (document_id, page, text, confidence, points_json) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![document_id.0, i64::from(page), text_box.text, text_box.confidence, to_string(&text_box.bounding_box).map_err(|_| database_error(rusqlite::Error::InvalidQuery))?],
+                params![update.document_id.0, i64::from(update.page), text_box.text, text_box.confidence, to_string(&text_box.bounding_box).map_err(|_| database_error(rusqlite::Error::InvalidQuery))?],
             ).map_err(database_error)?;
         }
         transaction.commit().map_err(database_error)?;
-        self.refresh_ocr_search_content(document_id)
+        self.refresh_ocr_search_content(update.document_id)
     }
 
     pub(crate) fn document_fragments(
@@ -872,6 +1127,21 @@ impl LibraryDatabase {
         Ok(fragments)
     }
 
+    /// Returns the indexed textual body used by the library search. This is
+    /// also the safe fallback for document AI when a text-native document has
+    /// not gone through the separate OCR pipeline.
+    pub(crate) fn document_indexed_text(&self, document_id: &DocumentId) -> LibraryResult<String> {
+        self.connection
+            .query_row(
+                "SELECT body FROM document_search_content WHERE document_id = ?1",
+                params![document_id.0],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(database_error)
+            .map(|body| body.unwrap_or_default())
+    }
+
     fn ocr_boxes(&self, document_id: &DocumentId, page: u32) -> LibraryResult<Vec<OcrTextBox>> {
         let mut statement = self.connection.prepare("SELECT text, confidence, points_json FROM ocr_text_boxes WHERE document_id = ?1 AND page = ?2 ORDER BY id").map_err(database_error)?;
         let rows = statement
@@ -904,26 +1174,6 @@ impl LibraryDatabase {
             .map_err(database_error)?
             .unwrap_or_default();
         self.set_document_search_fields(document_id, &body, &ocr)
-    }
-
-    pub(crate) fn rebuild_search_index(&mut self) -> LibraryResult<IndexRebuildSummary> {
-        let started = Instant::now();
-        let documents = self.all_documents()?;
-        let mut indexed_count = 0;
-        let mut failed_count = 0;
-        for document in documents {
-            self.refresh_document_index(&document.id)?;
-            if self.index_state(&document.id)?.as_deref() == Some("ready") {
-                indexed_count += 1;
-            } else {
-                failed_count += 1;
-            }
-        }
-        Ok(IndexRebuildSummary {
-            indexed_count,
-            failed_count,
-            duration_ms: started.elapsed().as_millis() as u64,
-        })
     }
 
     pub(crate) fn search(&self, query: &SearchQuery) -> LibraryResult<SearchResults> {
@@ -1010,6 +1260,9 @@ impl LibraryDatabase {
         if query.recent_only {
             where_clauses.push("u.last_used_at_ms IS NOT NULL".to_owned());
         }
+        // Soft-removed records remain available to a later filesystem scan but
+        // are hidden from every library view until that scan discovers them.
+        where_clauses.push("COALESCE(u.is_removed, 0) = 0".to_owned());
         let where_sql = if where_clauses.is_empty() {
             String::new()
         } else {
@@ -1018,7 +1271,10 @@ impl LibraryDatabase {
         let from_sql = if use_fts {
             "FROM document_fts JOIN documents d ON d.id = document_fts.document_id LEFT JOIN document_usage u ON u.document_id = d.id"
         } else {
-            "FROM documents d LEFT JOIN document_fts ON document_fts.document_id = d.id LEFT JOIN document_usage u ON u.document_id = d.id"
+            // The FTS virtual table has no ordinary index on document_id. Do
+            // not join it for the default list view; that turns a paged
+            // page into a full virtual-table scan for every document.
+            "FROM documents d LEFT JOIN document_usage u ON u.document_id = d.id"
         };
         let total: u64 = self
             .connection
@@ -1037,13 +1293,25 @@ impl LibraryDatabase {
         result_values.push(SqlValue::Integer(i64::from(offset)));
         let order = if use_fts {
             "ORDER BY bm25(document_fts, 12.0, 1.0, 4.0, 3.0, 1.0), d.modified_at_ms DESC"
+                .to_owned()
         } else if query.recent_only {
-            "ORDER BY u.last_used_at_ms DESC, d.display_name COLLATE NOCASE"
+            "ORDER BY u.last_used_at_ms DESC, d.display_name COLLATE NOCASE".to_owned()
         } else {
-            "ORDER BY d.modified_at_ms DESC, d.display_name COLLATE NOCASE"
+            // Keep DOCX at the front of the first page so a large library can
+            // open the user's most common editable format immediately.
+            "ORDER BY CASE d.format WHEN 'docx' THEN 0 WHEN 'doc' THEN 1 WHEN 'pptx' THEN 2 WHEN 'xlsx' THEN 3 WHEN 'pdf' THEN 4 WHEN 'markdown' THEN 5 WHEN 'text' THEN 6 WHEN 'csv' THEN 7 ELSE 99 END, d.modified_at_ms DESC, d.display_name COLLATE NOCASE".to_owned()
+        };
+        // Snippet generation is useful only for an actual FTS query. Calling
+        // snippet() for every row in the default library view makes SQLite
+        // tokenize the full FTS table repeatedly and can block the desktop
+        // window for a large local library.
+        let snippet_sql = if use_fts {
+            "snippet(document_fts, 1, '<mark>', '</mark>', '...', 24), snippet(document_fts, 2, '<mark>', '</mark>', '...', 24), snippet(document_fts, 3, '<mark>', '</mark>', '...', 24), snippet(document_fts, 4, '<mark>', '</mark>', '...', 24), snippet(document_fts, 5, '<mark>', '</mark>', '...', 24)"
+        } else {
+            "'', '', '', '', ''"
         };
         let sql = format!(
-            "SELECT d.id, d.source_root_id, d.canonical_path, d.display_name, d.format, d.size_bytes, d.modified_at_ms, d.file_identity, d.content_sha256, d.status, d.content_state, COALESCE(s.state, 'error'), COALESCE(u.is_favorite, 0), snippet(document_fts, 1, '<mark>', '</mark>', '...', 24), snippet(document_fts, 2, '<mark>', '</mark>', '...', 24), snippet(document_fts, 3, '<mark>', '</mark>', '...', 24), snippet(document_fts, 4, '<mark>', '</mark>', '...', 24), snippet(document_fts, 5, '<mark>', '</mark>', '...', 24) {from_sql} LEFT JOIN document_search_state s ON s.document_id = d.id {where_sql} {order} LIMIT ? OFFSET ?"
+            "SELECT d.id, d.source_root_id, d.canonical_path, d.display_name, d.format, d.size_bytes, d.modified_at_ms, d.file_identity, d.content_sha256, d.status, d.content_state, COALESCE(s.state, 'error'), COALESCE(u.is_favorite, 0), {snippet_sql} {from_sql} LEFT JOIN document_search_state s ON s.document_id = d.id {where_sql} {order} LIMIT ? OFFSET ?"
         );
         let mut statement = self.connection.prepare(&sql).map_err(database_error)?;
         let rows = statement
@@ -1083,10 +1351,11 @@ impl LibraryDatabase {
             let snippets = snippets
                 .into_iter()
                 .enumerate()
-                .filter(|(_, text)| !text.is_empty())
-                .map(|(index, text)| SearchSnippet {
-                    field: fields[index].to_owned(),
-                    text,
+                .filter_map(|(index, text)| {
+                    (fields[index] != "path" && !text.is_empty()).then_some(SearchSnippet {
+                        field: fields[index].to_owned(),
+                        text,
+                    })
                 })
                 .collect();
             items.push(SearchDocument {
@@ -1104,17 +1373,6 @@ impl LibraryDatabase {
             total,
             query_time_ms: started.elapsed().as_millis() as u64,
         })
-    }
-
-    fn all_documents(&self) -> LibraryResult<Vec<DocumentRecord>> {
-        let mut statement = self
-            .connection
-            .prepare("SELECT id, source_root_id, canonical_path, display_name, format, size_bytes, modified_at_ms, file_identity, content_sha256, status, content_state FROM documents ORDER BY id")
-            .map_err(database_error)?;
-        let rows = statement
-            .query_map([], document_from_row)
-            .map_err(database_error)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(database_error)
     }
 
     pub(crate) fn document_by_id(&self, id: &DocumentId) -> LibraryResult<Option<DocumentRecord>> {
@@ -1394,24 +1652,22 @@ impl LibraryDatabase {
         Ok(())
     }
 
-    fn index_state(&self, document_id: &DocumentId) -> LibraryResult<Option<String>> {
-        self.connection
-            .query_row(
-                "SELECT state FROM document_search_state WHERE document_id = ?1",
-                params![document_id.0],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(database_error)
-    }
-
     pub(crate) fn register_source(
         &mut self,
         kind: SourceKind,
         canonical_path: &str,
         display_name: &str,
     ) -> LibraryResult<SourceRegistration> {
-        if let Some(source) = self.source_by_path(canonical_path)? {
+        if let Some(mut source) = self.source_by_path(canonical_path)? {
+            if source.display_name != display_name {
+                self.connection
+                    .execute(
+                        "UPDATE source_roots SET display_name = ?1 WHERE id = ?2",
+                        params![display_name, source.id.0],
+                    )
+                    .map_err(database_error)?;
+                source.display_name = display_name.to_owned();
+            }
             return Ok(SourceRegistration {
                 source,
                 created: false,
@@ -1478,11 +1734,15 @@ impl LibraryDatabase {
             source_root_id: source_root_id.clone(),
             state: ScanJobState::Queued,
             scanned_count: 0,
+            total_count: 0,
+            current_file_name: None,
             changed_count: 0,
             failed_count: 0,
             retry_count: 0,
             error_code: None,
             created_at_ms: now,
+            started_at_ms: None,
+            completed_at_ms: None,
             updated_at_ms: now,
         };
         self.connection
@@ -1494,10 +1754,24 @@ impl LibraryDatabase {
         Ok(job)
     }
 
+    pub(crate) fn active_scan_job(
+        &self,
+        source_root_id: &SourceRootId,
+    ) -> LibraryResult<Option<ScanJobRecord>> {
+        self.connection
+            .query_row(
+                "SELECT id, source_root_id, state, scanned_count, total_count, current_file_name, changed_count, failed_count, retry_count, error_code, created_at_ms, started_at_ms, completed_at_ms, updated_at_ms FROM scan_jobs WHERE source_root_id = ?1 AND state IN ('queued', 'running', 'paused') ORDER BY updated_at_ms DESC LIMIT 1",
+                params![source_root_id.0],
+                job_from_row,
+            )
+            .optional()
+            .map_err(database_error)
+    }
+
     pub(crate) fn job(&self, id: &ScanJobId) -> LibraryResult<Option<ScanJobRecord>> {
         self.connection
             .query_row(
-                "SELECT id, source_root_id, state, scanned_count, changed_count, failed_count, retry_count, error_code, created_at_ms, updated_at_ms FROM scan_jobs WHERE id = ?1",
+                "SELECT id, source_root_id, state, scanned_count, total_count, current_file_name, changed_count, failed_count, retry_count, error_code, created_at_ms, started_at_ms, completed_at_ms, updated_at_ms FROM scan_jobs WHERE id = ?1",
                 params![id.0],
                 job_from_row,
             )
@@ -1516,23 +1790,14 @@ impl LibraryDatabase {
         Ok(changed as u64)
     }
 
-    pub(crate) fn update_job(
-        &mut self,
-        id: &ScanJobId,
-        state: ScanJobState,
-        scanned_count: u64,
-        changed_count: u64,
-        failed_count: u64,
-        retry_count: u32,
-        error_code: Option<&str>,
-    ) -> LibraryResult<ScanJobRecord> {
+    pub(crate) fn update_job(&mut self, update: ScanJobUpdate<'_>) -> LibraryResult<ScanJobRecord> {
         self.connection
             .execute(
-                "UPDATE scan_jobs SET state = ?2, scanned_count = ?3, changed_count = ?4, failed_count = ?5, retry_count = ?6, error_code = ?7, updated_at_ms = ?8 WHERE id = ?1",
-                params![id.0, state.as_str(), sqlite_int(scanned_count), sqlite_int(changed_count), sqlite_int(failed_count), i64::from(retry_count), error_code, now_unix_ms()],
+                "UPDATE scan_jobs SET state = ?2, scanned_count = ?3, total_count = ?4, current_file_name = ?5, changed_count = ?6, failed_count = ?7, retry_count = ?8, error_code = ?9, started_at_ms = ?10, completed_at_ms = ?11, updated_at_ms = ?12 WHERE id = ?1",
+                params![update.id.0, update.state.as_str(), sqlite_int(update.scanned_count), sqlite_int(update.total_count), update.current_file_name, sqlite_int(update.changed_count), sqlite_int(update.failed_count), i64::from(update.retry_count), update.error_code, update.started_at_ms, update.completed_at_ms, now_unix_ms()],
             )
             .map_err(database_error)?;
-        self.job(id)?.ok_or_else(|| {
+        self.job(update.id)?.ok_or_else(|| {
             LibraryError::new(LibraryErrorCode::ScanJobNotFound, "scan job was not found")
         })
     }
@@ -1541,6 +1806,8 @@ impl LibraryDatabase {
         &mut self,
         id: &ScanJobId,
         scanned_count: u64,
+        total_count: u64,
+        current_file_name: Option<&str>,
         changed_count: u64,
         failed_count: u64,
         retry_count: u32,
@@ -1548,8 +1815,8 @@ impl LibraryDatabase {
         let changed = self
             .connection
             .execute(
-                "UPDATE scan_jobs SET scanned_count = ?2, changed_count = ?3, failed_count = ?4, retry_count = ?5, updated_at_ms = ?6 WHERE id = ?1 AND state = 'running'",
-                params![id.0, sqlite_int(scanned_count), sqlite_int(changed_count), sqlite_int(failed_count), i64::from(retry_count), now_unix_ms()],
+                "UPDATE scan_jobs SET scanned_count = ?2, total_count = ?3, current_file_name = ?4, changed_count = ?5, failed_count = ?6, retry_count = ?7, updated_at_ms = ?8 WHERE id = ?1 AND state = 'running'",
+                params![id.0, sqlite_int(scanned_count), sqlite_int(total_count), current_file_name, sqlite_int(changed_count), sqlite_int(failed_count), i64::from(retry_count), now_unix_ms()],
             )
             .map_err(database_error)?;
         if changed == 0 {
@@ -1738,6 +2005,162 @@ impl LibraryDatabase {
     }
 }
 
+fn audit_integrity_error() -> LibraryError {
+    LibraryError::new(
+        LibraryErrorCode::AuditIntegrityFailed,
+        "AI audit integrity verification failed",
+    )
+}
+
+fn is_audit_hash(value: &[u8]) -> bool {
+    value.len() == AI_AUDIT_ZERO_HASH.len()
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right)
+        .fold(0_u8, |difference, (a, b)| difference | (a ^ b))
+        == 0
+}
+
+fn hmac_sha256(key: &[u8], message: &[u8]) -> Vec<u8> {
+    const BLOCK_BYTES: usize = 64;
+    let mut normalized_key = [0_u8; BLOCK_BYTES];
+    if key.len() > BLOCK_BYTES {
+        let digest = Sha256::digest(key);
+        normalized_key[..digest.len()].copy_from_slice(&digest);
+    } else {
+        normalized_key[..key.len()].copy_from_slice(key);
+    }
+    let mut inner_pad = [0_u8; BLOCK_BYTES];
+    let mut outer_pad = [0_u8; BLOCK_BYTES];
+    for (index, key_byte) in normalized_key.iter().enumerate() {
+        inner_pad[index] = key_byte ^ 0x36;
+        outer_pad[index] = key_byte ^ 0x5c;
+    }
+    let mut inner = Sha256::new();
+    inner.update(inner_pad);
+    inner.update(message);
+    let mut outer = Sha256::new();
+    outer.update(outer_pad);
+    outer.update(inner.finalize());
+    outer.finalize().to_vec()
+}
+
+fn push_audit_field(payload: &mut Vec<u8>, value: &[u8]) {
+    payload.extend_from_slice(&(value.len() as u64).to_le_bytes());
+    payload.extend_from_slice(value);
+}
+
+fn push_optional_audit_field(payload: &mut Vec<u8>, value: Option<&str>) {
+    match value {
+        Some(value) => {
+            payload.push(1);
+            push_audit_field(payload, value.as_bytes());
+        }
+        None => payload.push(0),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn ai_audit_entry_hash(
+    key: &[u8],
+    previous_hash: &[u8],
+    chain_index: i64,
+    id: &str,
+    session_id: &str,
+    document_id: Option<&str>,
+    permission: &str,
+    tool: &str,
+    outcome: &str,
+    details_json: &str,
+    created_at_ms: i64,
+) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(
+        previous_hash.len()
+            + id.len()
+            + session_id.len()
+            + document_id.map_or(0, str::len)
+            + permission.len()
+            + tool.len()
+            + outcome.len()
+            + details_json.len()
+            + 128,
+    );
+    payload.extend_from_slice(b"moji-ai-audit-v1");
+    push_audit_field(&mut payload, previous_hash);
+    payload.extend_from_slice(&chain_index.to_le_bytes());
+    push_audit_field(&mut payload, id.as_bytes());
+    push_audit_field(&mut payload, session_id.as_bytes());
+    push_optional_audit_field(&mut payload, document_id);
+    push_audit_field(&mut payload, permission.as_bytes());
+    push_audit_field(&mut payload, tool.as_bytes());
+    push_audit_field(&mut payload, outcome.as_bytes());
+    push_audit_field(&mut payload, details_json.as_bytes());
+    payload.extend_from_slice(&created_at_ms.to_le_bytes());
+    hmac_sha256(key, &payload)
+}
+
+fn ai_audit_state_hmac(key: &[u8], state: &AiAuditState) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(96);
+    payload.extend_from_slice(b"moji-ai-audit-state-v1");
+    payload.extend_from_slice(&state.first_retained_index.to_le_bytes());
+    payload.extend_from_slice(&state.last_index.to_le_bytes());
+    push_audit_field(&mut payload, &state.prior_hash);
+    push_audit_field(&mut payload, &state.last_hash);
+    hmac_sha256(key, &payload)
+}
+
+fn store_ai_audit_state(
+    transaction: &rusqlite::Transaction<'_>,
+    state: &AiAuditState,
+) -> LibraryResult<()> {
+    transaction
+        .execute(
+            "INSERT INTO ai_audit_state (singleton, first_retained_index, last_index, prior_hash, last_hash, state_hmac) VALUES (1, ?1, ?2, ?3, ?4, ?5) ON CONFLICT(singleton) DO UPDATE SET first_retained_index = excluded.first_retained_index, last_index = excluded.last_index, prior_hash = excluded.prior_hash, last_hash = excluded.last_hash, state_hmac = excluded.state_hmac",
+            params![state.first_retained_index, state.last_index, state.prior_hash, state.last_hash, state.state_hmac],
+        )
+        .map_err(database_error)?;
+    Ok(())
+}
+
+fn prune_ai_audit_actions(
+    transaction: &rusqlite::Transaction<'_>,
+    state: &mut AiAuditState,
+    retention_limit: i64,
+) -> LibraryResult<bool> {
+    if retention_limit < 1 {
+        return Err(audit_integrity_error());
+    }
+    let retained_count = (state.last_index - state.first_retained_index + 1).max(0);
+    if retained_count <= retention_limit {
+        return Ok(false);
+    }
+    let last_pruned_index = state.last_index - retention_limit;
+    let prior_hash: Vec<u8> = transaction
+        .query_row(
+            "SELECT entry_hash FROM ai_actions WHERE chain_index = ?1",
+            params![last_pruned_index],
+            |row| row.get(0),
+        )
+        .map_err(database_error)?;
+    if !is_audit_hash(&prior_hash) {
+        return Err(audit_integrity_error());
+    }
+    transaction
+        .execute(
+            "DELETE FROM ai_actions WHERE chain_index <= ?1",
+            params![last_pruned_index],
+        )
+        .map_err(database_error)?;
+    state.first_retained_index = last_pruned_index + 1;
+    state.prior_hash = prior_hash;
+    Ok(true)
+}
+
 fn placeholders(count: usize) -> String {
     std::iter::repeat_n("?", count)
         .collect::<Vec<_>>()
@@ -1921,21 +2344,28 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScanJobRecord> {
             .get::<_, i64>(3)?
             .try_into()
             .map_err(|_| rusqlite::Error::InvalidQuery)?,
-        changed_count: row
+        total_count: row
             .get::<_, i64>(4)?
             .try_into()
             .map_err(|_| rusqlite::Error::InvalidQuery)?,
-        failed_count: row
-            .get::<_, i64>(5)?
-            .try_into()
-            .map_err(|_| rusqlite::Error::InvalidQuery)?,
-        retry_count: row
+        current_file_name: row.get(5)?,
+        changed_count: row
             .get::<_, i64>(6)?
             .try_into()
             .map_err(|_| rusqlite::Error::InvalidQuery)?,
-        error_code: row.get(7)?,
-        created_at_ms: row.get(8)?,
-        updated_at_ms: row.get(9)?,
+        failed_count: row
+            .get::<_, i64>(7)?
+            .try_into()
+            .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        retry_count: row
+            .get::<_, i64>(8)?
+            .try_into()
+            .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        error_code: row.get(9)?,
+        created_at_ms: row.get(10)?,
+        started_at_ms: row.get(11)?,
+        completed_at_ms: row.get(12)?,
+        updated_at_ms: row.get(13)?,
     })
 }
 
@@ -1978,14 +2408,16 @@ fn sqlite_int(value: u64) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
+    use std::{env, fs, time::Instant};
 
-    use rusqlite::params;
+    use rusqlite::{Connection, OptionalExtension, params};
+    use serde_json::json;
 
     use super::LibraryDatabase;
     use crate::library::model::{
-        DocumentFormat, DocumentId, DocumentRecord, DocumentStatus, OcrBoundingBox, OcrPoint,
-        OcrTextBox, ScanJobId, ScanJobState, SearchQuery, SourceKind,
+        AiActionInput, DocumentFormat, DocumentId, DocumentRecord, DocumentStatus, OcrBoundingBox,
+        OcrJobUpdate, OcrPageUpdate, OcrPoint, OcrTextBox, ScanJobId, ScanJobState, SearchQuery,
+        SourceKind,
     };
 
     fn insert_document(
@@ -2030,16 +2462,16 @@ mod tests {
             .connection()
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("version should be readable");
-        assert_eq!(version, 5);
+        assert_eq!(version, 8);
         let table_count: i64 = database
             .connection()
             .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('source_roots', 'documents', 'scan_jobs', 'scan_events', 'document_snapshots', 'document_annotations', 'ocr_jobs', 'ocr_pages', 'ocr_text_boxes', 'ocr_metrics', 'ai_actions')",
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('source_roots', 'documents', 'scan_jobs', 'scan_events', 'document_snapshots', 'document_annotations', 'ocr_jobs', 'ocr_pages', 'ocr_text_boxes', 'ocr_metrics', 'ai_actions', 'ai_audit_state')",
                 [],
                 |row| row.get(0),
             )
             .expect("tables should be queryable");
-        assert_eq!(table_count, 11);
+        assert_eq!(table_count, 12);
         let count: i64 = database
             .connection()
             .query_row(
@@ -2054,6 +2486,40 @@ mod tests {
             .expect("source lookup should work");
         assert!(source.is_some());
         assert!(source.expect("source").id.0.starts_with("src-"));
+    }
+
+    #[test]
+    fn updates_the_display_name_when_reregistering_the_same_source() {
+        let mut database = LibraryDatabase::in_memory().expect("database should open");
+        let first = database
+            .register_source(SourceKind::Directory, "D:/", "source")
+            .expect("source should be stored");
+        let second = database
+            .register_source(SourceKind::Directory, "D:/", "D盘")
+            .expect("source should be refreshed");
+
+        assert!(!second.created);
+        assert_eq!(first.source.id, second.source.id);
+        assert_eq!(second.source.display_name, "D盘");
+    }
+
+    #[test]
+    fn disk_library_uses_standard_sqlite_without_sqlcipher() {
+        let database_path = env::temp_dir().join(format!(
+            "{}.sqlite",
+            crate::library::model::new_identifier("moji-plaintext-library")
+        ));
+        let database = LibraryDatabase::open(&database_path).expect("library database should open");
+        let cipher_version = database
+            .connection()
+            .query_row("PRAGMA cipher_version", [], |row| row.get::<_, String>(0))
+            .optional()
+            .expect("cipher capability query should run");
+        assert!(cipher_version.is_none());
+        drop(database);
+        fs::remove_file(&database_path).expect("temporary database should clean up");
+        fs::remove_file(format!("{}.key", database_path.display()))
+            .expect("temporary audit key should clean up");
     }
 
     #[test]
@@ -2114,6 +2580,152 @@ mod tests {
     }
 
     #[test]
+    fn removes_documents_from_library_views_without_deleting_the_source_record() {
+        let mut database = LibraryDatabase::in_memory().expect("database should open");
+        let document_id = insert_document(
+            &mut database,
+            "doc-removable",
+            "可移除.txt",
+            DocumentFormat::Text,
+        );
+        database
+            .set_favorite(&document_id, true)
+            .expect("favorite should save");
+        database
+            .record_recent_use(&document_id)
+            .expect("recent use should save");
+
+        database
+            .remove_from_library(&document_id)
+            .expect("document should be softly removed");
+
+        for query in [
+            SearchQuery {
+                limit: 20,
+                ..SearchQuery::default()
+            },
+            SearchQuery {
+                favorite_only: true,
+                limit: 20,
+                ..SearchQuery::default()
+            },
+            SearchQuery {
+                recent_only: true,
+                limit: 20,
+                ..SearchQuery::default()
+            },
+        ] {
+            assert_eq!(database.search(&query).unwrap().total, 0);
+        }
+        assert!(database.document_by_id(&document_id).unwrap().is_some());
+
+        database
+            .restore_from_library_scan(&document_id)
+            .expect("a later scan should restore visibility");
+        assert_eq!(
+            database
+                .search(&SearchQuery {
+                    limit: 20,
+                    ..SearchQuery::default()
+                })
+                .unwrap()
+                .total,
+            1
+        );
+    }
+
+    #[test]
+    fn prioritizes_docx_before_other_formats_in_default_library_pages() {
+        let mut database = LibraryDatabase::in_memory().expect("database should open");
+        insert_document(
+            &mut database,
+            "doc-pdf-first",
+            "说明.pdf",
+            DocumentFormat::Pdf,
+        );
+        let docx = insert_document(
+            &mut database,
+            "doc-docx-priority",
+            "可编辑.docx",
+            DocumentFormat::Docx,
+        );
+
+        let results = database
+            .search(&SearchQuery {
+                limit: 20,
+                ..SearchQuery::default()
+            })
+            .expect("default library search should work");
+
+        assert_eq!(
+            results.items.first().map(|item| item.document.id.clone()),
+            Some(docx)
+        );
+    }
+
+    #[test]
+    fn relation_names_are_trimmed_reused_case_insensitively_and_bounded() {
+        let mut database = LibraryDatabase::in_memory().expect("database should open");
+        let collection = database
+            .create_collection("  项目资料  ")
+            .expect("collection should create");
+        let same_collection = database
+            .create_collection("项目资料")
+            .expect("same collection should be reused");
+        assert_eq!(collection.id, same_collection.id);
+        assert_eq!(collection.name, "项目资料");
+
+        let tag = database
+            .create_tag("  Follow Up  ")
+            .expect("tag should create");
+        let same_tag = database
+            .create_tag("follow up")
+            .expect("same tag should be reused");
+        assert_eq!(tag.id, same_tag.id);
+        assert_eq!(tag.name, "Follow Up");
+
+        let long_name = "x".repeat(81);
+        assert_eq!(
+            database.create_collection(&long_name).unwrap_err().code,
+            "INVALID_ARGUMENT"
+        );
+        assert_eq!(
+            database.create_tag(&long_name).unwrap_err().code,
+            "INVALID_ARGUMENT"
+        );
+    }
+
+    #[test]
+    fn search_exposes_document_path_without_path_snippets() {
+        let mut database = LibraryDatabase::in_memory().expect("database should open");
+        insert_document(
+            &mut database,
+            "doc-private-path",
+            "notes.md",
+            DocumentFormat::Markdown,
+        );
+
+        let results = database
+            .search(&SearchQuery {
+                text: Some("authorized".to_owned()),
+                limit: 20,
+                ..SearchQuery::default()
+            })
+            .expect("path search should work internally");
+
+        assert_eq!(results.total, 1);
+        assert!(
+            results.items[0]
+                .snippets
+                .iter()
+                .all(|snippet| snippet.field != "path")
+        );
+        let serialized = serde_json::to_string(&results).expect("results should serialize");
+        assert!(serialized.contains("C:/authorized"));
+        assert!(!serialized.contains("canonicalPath"));
+    }
+
+    #[test]
     fn keeps_many_to_many_relationships_and_rebuilds_index_without_metadata_loss() {
         let mut database = LibraryDatabase::in_memory().expect("database should open");
         let first = insert_document(
@@ -2144,10 +2756,6 @@ mod tests {
         database
             .set_collection_membership(&second, &collection.id, true)
             .expect("relation should save");
-        let rebuild = database
-            .rebuild_search_index()
-            .expect("rebuild should work");
-        assert_eq!(rebuild.indexed_count, 2);
         assert!(database.document_by_id(&first).unwrap().is_some());
         assert_eq!(
             database
@@ -2172,16 +2780,16 @@ mod tests {
             DocumentFormat::Png,
         );
         database
-            .replace_ocr_page(
-                &document_id,
-                1,
-                "ocr",
-                "本合同包含中文和 English searchable text",
-                Some(0.93),
-                1200,
-                1800,
-                90,
-                &[OcrTextBox {
+            .replace_ocr_page(OcrPageUpdate {
+                document_id: &document_id,
+                page: 1,
+                source: "ocr",
+                text: "本合同包含中文和 English searchable text",
+                confidence: Some(0.93),
+                width: 1200,
+                height: 1800,
+                rotation_degrees: 90,
+                boxes: &[OcrTextBox {
                     text: "中文和 English searchable text".to_owned(),
                     confidence: 0.93,
                     bounding_box: OcrBoundingBox {
@@ -2193,7 +2801,7 @@ mod tests {
                         ],
                     },
                 }],
-            )
+            })
             .expect("OCR page should persist");
         let fragments = database
             .document_fragments(&document_id, Some(1))
@@ -2238,7 +2846,16 @@ mod tests {
             .expect("OCR job should be queued");
         assert_eq!(job.state, ScanJobState::Queued);
         let running = database
-            .update_ocr_job(&job.id, ScanJobState::Running, 2, 0, 0, 0, None, None)
+            .update_ocr_job(OcrJobUpdate {
+                id: &job.id,
+                state: ScanJobState::Running,
+                page_count: 2,
+                processed_count: 0,
+                failed_count: 0,
+                retry_count: 0,
+                error_code: None,
+                duration_ms: None,
+            })
             .expect("job should start");
         assert_eq!(running.model_bytes, 12_345);
         let progress = database
@@ -2247,7 +2864,16 @@ mod tests {
             .expect("job is running");
         assert_eq!(progress.processed_count, 1);
         let completed = database
-            .update_ocr_job(&job.id, ScanJobState::Completed, 2, 2, 0, 0, None, Some(25))
+            .update_ocr_job(OcrJobUpdate {
+                id: &job.id,
+                state: ScanJobState::Completed,
+                page_count: 2,
+                processed_count: 2,
+                failed_count: 0,
+                retry_count: 0,
+                error_code: None,
+                duration_ms: Some(25),
+            })
             .expect("job should complete");
         assert_eq!(completed.duration_ms, Some(25));
     }
@@ -2280,6 +2906,106 @@ mod tests {
     }
 
     #[test]
+    fn rejects_modified_or_deleted_ai_audit_records() {
+        let database = LibraryDatabase::in_memory().expect("database should open");
+        let details = json!({ "callId": "call-1" });
+        database
+            .record_ai_action(AiActionInput {
+                id: "ai-audit-1",
+                session_id: "session-1",
+                document_id: None,
+                permission: "suggest",
+                tool: "read_document_fragments",
+                outcome: "requested",
+                details: &details,
+            })
+            .expect("audit action should be stored");
+        database
+            .connection()
+            .execute(
+                "UPDATE ai_actions SET outcome = 'tampered' WHERE id = 'ai-audit-1'",
+                [],
+            )
+            .expect("test should modify the audit row");
+        let error = database
+            .ai_actions(None)
+            .expect_err("changed audit data must be rejected");
+        assert_eq!(error.code, "AUDIT_INTEGRITY_FAILED");
+
+        let database = LibraryDatabase::in_memory().expect("database should open");
+        let details = json!({ "callId": "call-2" });
+        database
+            .record_ai_action(AiActionInput {
+                id: "ai-audit-2",
+                session_id: "session-2",
+                document_id: None,
+                permission: "suggest",
+                tool: "read_document_fragments",
+                outcome: "requested",
+                details: &details,
+            })
+            .expect("audit action should be stored");
+        database
+            .connection()
+            .execute("DELETE FROM ai_actions WHERE id = 'ai-audit-2'", [])
+            .expect("test should delete the audit row");
+        let error = database
+            .ai_actions(None)
+            .expect_err("deleted audit data must be rejected");
+        assert_eq!(error.code, "AUDIT_INTEGRITY_FAILED");
+    }
+
+    #[test]
+    fn retains_a_signed_audit_checkpoint_when_pruning_old_actions() {
+        let database = LibraryDatabase::in_memory().expect("database should open");
+        for index in 1..=3 {
+            let action_id = format!("ai-retention-{index}");
+            let details = json!({ "callId": index });
+            database
+                .record_ai_action(AiActionInput {
+                    id: &action_id,
+                    session_id: "session-retention",
+                    document_id: None,
+                    permission: "suggest",
+                    tool: "read_document_fragments",
+                    outcome: "requested",
+                    details: &details,
+                })
+                .expect("audit action should be stored");
+        }
+        database
+            .enforce_ai_action_retention(2)
+            .expect("retention should create a checkpoint");
+        let count: i64 = database
+            .connection()
+            .query_row("SELECT COUNT(*) FROM ai_actions", [], |row| row.get(0))
+            .expect("retained action count should be readable");
+        assert_eq!(count, 2);
+        let checkpoint: (i64, i64) = database
+            .connection()
+            .query_row(
+                "SELECT first_retained_index, last_index FROM ai_audit_state WHERE singleton = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("checkpoint should be readable");
+        assert_eq!(checkpoint, (2, 3));
+        assert_eq!(database.ai_actions(None).unwrap().len(), 2);
+
+        database
+            .connection()
+            .execute(
+                "UPDATE ai_actions SET tool = 'tampered' WHERE chain_index = 2",
+                [],
+            )
+            .expect("test should modify a retained row");
+        let error = database
+            .ai_actions(None)
+            .expect_err("checkpoint must reject retained row tampering");
+        assert_eq!(error.code, "AUDIT_INTEGRITY_FAILED");
+    }
+
+    #[test]
     fn indexed_query_p95_is_below_three_hundred_ms_for_representative_dataset() {
         let mut database = LibraryDatabase::in_memory().expect("database should open");
         for index in 0..1_000 {
@@ -2297,6 +3023,16 @@ mod tests {
                 )
                 .expect("content should index");
         }
+        let list_started = Instant::now();
+        let list = database
+            .search(&SearchQuery {
+                limit: 50,
+                ..SearchQuery::default()
+            })
+            .expect("default library view should work");
+        let list_ms = list_started.elapsed().as_millis() as u64;
+        assert_eq!(list.items.len(), 50);
+        assert!(list_ms < 300, "default library view took {list_ms}ms");
         let mut durations = Vec::new();
         for _ in 0..30 {
             let started = Instant::now();
@@ -2314,5 +3050,104 @@ mod tests {
         let p95 = durations[((durations.len() as f64 * 0.95).ceil() as usize).saturating_sub(1)];
         eprintln!("search_perf dataset=1000 queries=30 limit=50 p95_ms={p95}");
         assert!(p95 < 300, "p95 was {p95}ms");
+    }
+
+    #[test]
+    #[ignore = "audit benchmark: run explicitly to measure a 10k disk-backed library"]
+    fn indexed_query_p95_is_below_three_hundred_ms_for_ten_thousand_disk_records() {
+        let database_path = env::temp_dir().join(format!(
+            "{}.sqlite",
+            crate::library::model::new_identifier("moji-search-perf")
+        ));
+        let connection =
+            Connection::open(&database_path).expect("disk-backed database connection should open");
+        let mut database = LibraryDatabase {
+            connection,
+            audit_key: vec![0; 32],
+        };
+        database
+            .migrate()
+            .expect("disk-backed database should migrate");
+        let source = database
+            .register_source(SourceKind::Directory, "C:/authorized", "authorized")
+            .expect("source should exist");
+        let scan_job_id = ScanJobId("job-disk-perf".to_owned());
+        database
+            .connection()
+            .execute_batch("BEGIN IMMEDIATE")
+            .expect("fixture load transaction should start");
+
+        // The fixture is bulk-loaded to isolate search latency from scan ingestion throughput.
+        let mut documents = database
+            .connection()
+            .prepare(
+                "INSERT INTO documents (id, source_root_id, canonical_path, display_name, format, size_bytes, modified_at_ms, file_identity, content_sha256, status, content_state, last_seen_scan_id, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, 'text', 10, 100, NULL, ?5, 'present', 'ready', ?6, 100, 100)",
+            )
+            .expect("document fixture statement should prepare");
+        let mut search_state = database
+            .connection()
+            .prepare(
+                "INSERT INTO document_search_state (document_id, state, error_code, updated_at_ms) VALUES (?1, 'ready', NULL, 100)",
+            )
+            .expect("search-state fixture statement should prepare");
+        let mut fts = database
+            .connection()
+            .prepare(
+                "INSERT INTO document_fts (document_id, title, body, path, tags, ocr) VALUES (?1, ?2, ?3, ?4, '', '')",
+            )
+            .expect("FTS fixture statement should prepare");
+        for index in 0..10_000 {
+            let id = format!("doc-disk-{index}");
+            let title = format!("项目资料-{index}.txt");
+            let path = format!("C:/authorized/{title}");
+            documents
+                .execute(params![
+                    id,
+                    source.source.id.0,
+                    path,
+                    title,
+                    format!("hash-disk-{index}"),
+                    scan_job_id.0,
+                ])
+                .expect("document should be stored");
+            search_state
+                .execute(params![format!("doc-disk-{index}")])
+                .expect("search state should be stored");
+            fts.execute(params![
+                format!("doc-disk-{index}"),
+                format!("项目资料-{index}.txt"),
+                "中文全文检索性能代表性资料集，包含项目计划和资料组织内容",
+                format!("C:/authorized/项目资料-{index}.txt"),
+            ])
+            .expect("content should index");
+        }
+        drop(fts);
+        drop(search_state);
+        drop(documents);
+        database
+            .connection()
+            .execute_batch("COMMIT")
+            .expect("fixture load transaction should commit");
+
+        let mut durations = Vec::new();
+        for _ in 0..30 {
+            let started = Instant::now();
+            let results = database
+                .search(&SearchQuery {
+                    text: Some("全文检索".to_owned()),
+                    limit: 50,
+                    ..SearchQuery::default()
+                })
+                .expect("search should work");
+            assert_eq!(results.total, 10_000);
+            durations.push(started.elapsed().as_millis() as u64);
+        }
+        durations.sort_unstable();
+        let p95 = durations[((durations.len() as f64 * 0.95).ceil() as usize).saturating_sub(1)];
+        eprintln!("search_perf disk_backed=true dataset=10000 queries=30 limit=50 p95_ms={p95}");
+        assert!(p95 < 300, "p95 was {p95}ms");
+
+        drop(database);
+        fs::remove_file(&database_path).expect("temporary performance database should clean up");
     }
 }

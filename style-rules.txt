@@ -1,0 +1,323 @@
+src\Glass.css:144:.document-surface, .annotation-pane, .ai-workbench, .ai-composer, .viewer-notice, .conflict-panel, .comparison-panel { color: var(--v3-ink) !important; border-color: var(--v3-line) !important; background: rgba(255, 255, 255, .58) !important; border-radius: 16px !important; box-shadow: 0 18px 45px rgba(58,76,94,.06), inset 0 1px rgba(255,255,255,.05) !important; }
+src\Glass.css:146:.brand-workspace h1, .brand-workspace p, .ai-workbench h2, .ai-workbench strong, .assistant-empty strong, .assistant-empty p, .assistant-principles strong { color: var(--v3-ink) !important; }
+src\Glass.css:147:.ai-workbench p, .assistant-empty small, .assistant-principles small, .assistant-footnote, .brand-workspace .workspace-status { color: var(--v3-muted) !important; }
+src\Glass.css:153:.ai-turn { border-color: var(--v3-line) !important; background: rgba(255,255,255,.035) !important; border-radius: 14px !important; }
+src\Glass.css:154:.ai-turn--user { background: rgba(121,208,187,.1) !important; }
+src\Glass.css:460:.ai-workbench .assistant-heading { border-color:var(--v3-line); }
+src\Glass.css:461:.ai-workbench h2 { font-family:inherit; }
+src\Glass.css:462:.ai-workbench .assistant-principles { display:grid; gap:8px; }
+src\Glass.css:463:.ai-workbench .assistant-principles > div { border-radius:12px; padding:12px; }
+src\Glass.css:466: .library-shell .assistant-home { min-height:480px; height:auto; flex:none; }
+src\Glass.css:500: .library-shell > .assistant-home { grid-column:3; grid-row:2; min-width:0; }
+src\Glass.css:603: .library-nav,.result-pane,.result-item,.workspace-command-bar,.assistant-home,.assistant-input,
+src\Glass.css:637:.library-shell :is(.result-pane,.result-header,.result-title-block,.filters,.results-label,.result-item,.workspace-command-bar,.assistant-home,.ai-workbench) {
+src\Glass.css:722: .library-nav,.result-pane,.result-item,.workspace-command-bar,.assistant-home,.assistant-input,
+src\Glass.css:736: .library-nav,.result-pane,.result-item,.workspace-command-bar,.assistant-home,.assistant-input,
+src\Glass.css:757: .library-nav,.result-pane,.result-item,.workspace-command-bar,.assistant-home,.assistant-input,
+src\Glass.css:767: .library-nav,.result-pane,.result-item,.workspace-command-bar,.assistant-home,.assistant-input,
+src\Glass.css:777: :is(.workbench-shell,.library-shell) :is(.workbench-window,.workbench-sidebar,.workbench-topbar,.workbench-card,.workbench-dialog,.capture-composer,.capture-card,.week-batch,.recurrence-panel,.eco-week .week-day,.usage-card,.memory-settings-card,.memory-add-card,.memory-card,.focus-timer,.project-list article,.library-nav,.result-pane,.result-item,.workspace-command-bar,.assistant-home,.assistant-input,.ai-panel,.ai-preview,.ai-events article,.document-surface,.annotation-pane,.office-preview,.office-editor,.docx-viewer,.docx-toolbar-shell,.docx-page,.comparison-panel,.scan-launch,.scan-modal,.scan-progress-popover,.scan-enumeration-popover,.branded-state,.workspace-empty)::after { transition:none; }
+src\Glass.css:1751:.library-shell > aside.assistant-home.ai-workbench {
+src\Glass.css:1757:.library-shell > aside.assistant-home.ai-workbench::before { display: none !important; content: none !important; }
+src\Glass.css:1758:.library-shell > aside.assistant-home.ai-workbench .ai-turn { border-radius: 24px !important; }
+src\Glass.css:1759:.library-shell > aside.assistant-home.ai-workbench .ai-composer { border-radius: 24px !important; }
+src\Glass.css:1777:.ai-workbench { border-radius: 20px !important; }
+src\Glass.css:1778:.library-shell .ai-workbench .ai-turn,
+src\Glass.css:1779:.library-shell .ai-workbench .ai-thread-empty { border-radius: 28px !important; border-color: rgba(149, 171, 186, .2) !important; }
+src\Glass.css:1780:.library-shell .ai-workbench .ai-composer { border-radius: 24px !important; }
+src\Glass.css:1781:.ai-workbench .ai-composer-top select,
+src\Glass.css:1782:.ai-workbench .composer-preview,
+src\Glass.css:1783:.ai-workbench .composer-send { border-radius: 10px !important; }
+src\Glass.css:1787:.library-shell > .assistant-home.ai-workbench {
+src\Glass.css:1793:.library-shell > .assistant-home.ai-workbench::before {
+src\Glass.css:2004:.library-shell > .assistant-home,
+src\Glass.css:2014:.library-shell > .assistant-home,
+src\Glass.css:2050:  .library-shell > .assistant-home {
+src\Glass.css:2070:.library-shell > .assistant-home::before,
+src\Glass.css:2084:.library-shell > .assistant-home > *,
+src\Glass.css:2093:  .library-shell > .assistant-home,
+src\Glass.css:2243:.library-shell > .assistant-home {
+src\App.css:414:.result-title-block .eyebrow, .assistant-home .eyebrow { display: block; margin-bottom: 8px; color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+src\App.css:472:.assistant-home { width: 100%; min-height: 100%; display: grid; grid-template-rows: auto auto auto 1fr auto auto; gap: 17px; align-self: stretch; padding: 24px 20px 18px; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+src\App.css:473:.assistant-home header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+src\App.css:477:.assistant-home .eyebrow { margin-bottom: 4px; }
+src\App.css:478:.assistant-home h2 { margin: 0; color: var(--ink); font-size: 18px; }
+src\App.css:556:  .assistant-home { min-height: 420px; align-self: auto; }
+src\App.css:575:  .assistant-home { width: 100%; min-height: 0; }
+src\App.css:747:.ai-workbench {
+src\App.css:910:.ai-workbench {
+src\App.css:922:.ai-workbench header { align-items: center; }
+src\App.css:923:.ai-workbench .assistant-mark { width: 36px; height: 36px; flex-basis: 36px; }
+src\App.css:924:.ai-workbench h2 { font-size: 17px; }
+src\App.css:929:.ai-workbench .ai-panel {
+src\App.css:936:.ai-workbench .ai-panel select,
+src\App.css:937:.ai-workbench .ai-panel > textarea { background: rgba(255, 255, 255, .62); border-radius: 6px; }
+src\App.css:938:.ai-workbench .ai-panel > textarea { min-height: 76px; }
+src\App.css:939:.ai-workbench .ai-actions button { border-radius: 6px; }
+src\App.css:940:.ai-workbench .ai-events { max-height: 150px; }
+src\App.css:941:.ai-workbench .ai-events article { border-radius: 6px; }
+src\App.css:942:.ai-workbench .assistant-input { border-radius: 7px; }
+src\App.css:943:.ai-workbench .assistant-input .icon-button { border-radius: 6px; background: var(--accent); }
+src\App.css:962:  .ai-workbench { grid-column: 1 / -1; min-height: 430px; max-height: none; }
+src\App.css:971:  .ai-workbench {
+src\App.css:990:  .ai-workbench { min-height: 520px; padding: 18px 15px; }
+src\App.css:1069:.ai-workbench {
+src\App.css:1082:.ai-workbench { padding: 17px 16px 13px; background: var(--mac-assistant); }
+src\App.css:1187:.ai-workbench { grid-template-rows: auto auto auto auto minmax(0, 1fr) auto; gap: 13px; padding: 17px 16px 13px; background: rgba(245, 246, 252, .56); }
+src\App.css:1188:.ai-workbench header { padding-bottom: 3px; }
+src\App.css:1189:.ai-workbench .assistant-mark { width: 34px; height: 34px; flex-basis: 34px; background: #625bbf; border-radius: 10px; box-shadow: 0 7px 16px rgba(98, 91, 191, .2); }
+src\App.css:1190:.ai-workbench h2 { color: var(--mac-ink); font-size: 16px; }
+src\App.css:1191:.ai-workbench .eyebrow { color: var(--mac-accent); font-size: 8px; letter-spacing: .13em; }
+src\App.css:1205:.ai-workbench .ai-panel { padding-top: 10px; }
+src\App.css:1206:.ai-workbench .ai-panel select,
+src\App.css:1207:.ai-workbench .ai-panel > textarea { color: var(--mac-ink-soft); background: rgba(255, 255, 255, .53); border-radius: 7px; font-size: 10px; }
+src\App.css:1208:.ai-workbench .ai-panel > textarea { min-height: 70px; }
+src\App.css:1209:.ai-workbench .ai-events { max-height: 144px; }
+src\App.css:1210:.ai-workbench .ai-events article { background: rgba(255, 255, 255, .48); border-color: var(--mac-line); border-radius: 7px; }
+src\App.css:1237:  .ai-workbench { grid-column: 1 / -1; min-height: 420px; }
+src\App.css:1252:  .ai-workbench { grid-column: 1; min-height: auto; max-height: none; border-right: 0; border-bottom: 1px solid var(--mac-line); }
+src\App.css:1257:  .ai-workbench { min-height: 510px; padding: 17px 14px 14px; border-bottom: 0; }
+src\App.css:1303:.ai-workbench { background: var(--mac-assistant); }
+src\App.css:1359:.ai-workbench .ai-panel { display: grid; gap: 8px; }
+src\App.css:1372:.ai-workbench .ai-panel select { min-height: 31px; }
+src\App.css:1373:.ai-workbench .ai-panel > textarea { min-height: 72px; }
+src\App.css:1506:.ai-workbench {
+src\App.css:1512:.ai-workbench .assistant-mark { width: 36px; height: 36px; flex-basis: 36px; color: #f8faf6; background: #24544c !important; border: 1px solid rgba(255, 255, 255, .55); border-radius: 9px; box-shadow: 0 9px 20px rgba(36, 84, 76, .2) !important; }
+src\App.css:1513:.ai-workbench .assistant-heading { gap: 10px; }
+src\App.css:1514:.ai-workbench .eyebrow { color: var(--mac-cinnabar); font-size: 8px; letter-spacing: .16em; }
+src\App.css:1515:.ai-workbench h2 { color: var(--mac-ink); font-family: "Songti SC", "Noto Serif SC", SimSun, serif; font-size: 18px; letter-spacing: .04em; }
+src\App.css:1543:.ai-workbench .ai-panel { gap: 8px; }
+src\App.css:1544:.ai-workbench .ai-panel { min-height: 0; grid-template-rows: auto minmax(0, 1fr) auto auto; }
+src\App.css:1551:.ai-workbench .ai-panel select, .ai-workbench .ai-panel > textarea { background: rgba(255, 255, 255, .64); border-color: var(--mac-line); border-radius: 8px; }
+src\App.css:1552:.ai-workbench .ai-panel > textarea { min-height: 75px; }
+src\App.css:1555:.ai-workbench .ai-events article { background: rgba(255, 255, 255, .5); border-color: var(--mac-line); border-radius: 8px; }
+src\App.css:1571:.ai-turn { max-width: 92%; display: grid; gap: 4px; padding: 8px 9px; border-radius: 9px; }
+src\App.css:1572:.ai-turn-label { color: var(--mac-muted); font-size: 8px; font-weight: 800; letter-spacing: .08em; }
+src\App.css:1573:.ai-turn p { margin: 0; color: var(--mac-ink-soft); font-size: 10px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+src\App.css:1574:.ai-turn--user { justify-self: end; background: rgba(205, 228, 219, .62); border: 1px solid rgba(47, 117, 105, .15); }
+src\App.css:1575:.ai-turn--user .ai-turn-label { color: var(--mac-accent-dark); }
+src\App.css:1576:.ai-turn--assistant { justify-self: start; background: rgba(255, 255, 255, .58); border: 1px solid var(--mac-line); }
+src\App.css:1577:.ai-turn--assistant .ai-turn-label { color: var(--mac-cinnabar); }
+src\App.css:1578:.ai-turn--tool { justify-self: start; max-width: 100%; padding: 5px 7px; background: rgba(234, 229, 217, .54); border-left: 2px solid var(--mac-cinnabar); border-radius: 0 6px 6px 0; }
+src\App.css:1579:.ai-turn--tool p { color: #7b6b5c; font-size: 9px; }
+src\App.css:1580:.ai-turn--error { justify-self: start; max-width: 100%; background: rgba(193, 95, 73, .09); border: 1px solid rgba(193, 95, 73, .18); }
+src\App.css:1581:.ai-turn--error .ai-turn-label, .ai-turn--error p { color: #9b4d3d; }
+src\App.css:1647:  .ai-workbench { padding: 18px 14px 14px; }
+src\App.css:1896:.ai-workbench { position: relative; }
+src\App.css:1897:.ai-workbench::after { content: ""; position: absolute; right: 17px; bottom: 14px; left: 17px; height: 1px; background: rgba(42, 73, 67, .1); pointer-events: none; }
+src\App.css:1898:.ai-workbench .assistant-footnote { position: relative; z-index: 1; padding-bottom: 4px; }
+src\App.css:1915:.ai-workbench { border-color: rgba(42, 73, 67, .1); }
+src\App.css:1918:.ai-workbench { box-shadow: inset 1px 0 0 rgba(255, 255, 255, .34); }
+src\App.css:1953:.ai-workbench::after { background: rgba(42, 73, 67, .11); }
+src\App.css:3728:.ai-workbench .assistant-context-note > div,
+src\App.css:3729:.ai-workbench .ai-context-line,
+src\App.css:3730:.ai-workbench .ai-context-line > strong,
+src\App.css:3731:.ai-workbench .ai-composer,
+src\App.css:3732:.ai-workbench .ai-composer > *,
+src\App.css:3733:.ai-workbench .assistant-suggestions,
+src\App.css:3734:.ai-workbench .assistant-suggestions > * { min-width: 0; }
+src\App.css:3736:.ai-workbench .assistant-context-note small,
+src\App.css:3737:.ai-workbench .ai-context-line > strong,
+src\App.css:3738:.ai-workbench .ai-context-line > small,
+src\App.css:3739:.ai-workbench .assistant-suggestions button > span,
+src\App.css:3740:.ai-workbench .assistant-suggestions button strong,
+src\App.css:3741:.ai-workbench .assistant-suggestions button small {
+src\App.css:3747:.ai-workbench .assistant-suggestions button { min-width: 0; overflow: hidden; }
+src\App.css:3749:.ai-workbench .ai-composer-bottom {
+src\App.css:3756:.ai-workbench .ai-composer-bottom > span {
+src\App.css:3763:.ai-workbench .ai-composer-actions {
+src\App.css:3771:.ai-workbench .composer-preview,
+src\App.css:3772:.ai-workbench .composer-send { flex: 0 0 auto; }
+src\App.css:3792:  .ai-workbench .assistant-suggestions { grid-template-columns: minmax(0, 1fr); }
+src\App.css:3793:  .ai-workbench .assistant-suggestions button small { display: none; }
+src\App.css:3798:.ai-workbench .ai-composer-meta {
+src\App.css:3805:.ai-workbench .ai-prompt-picker {
+src\App.css:3814:.ai-workbench .ai-prompt-picker > svg { width: 14px; height: 14px; flex: 0 0 14px; color: #a06d4a; }
+src\App.css:3815:.ai-workbench .ai-prompt-picker > span { flex: 0 0 auto; }
+src\App.css:3816:.ai-workbench .ai-prompt-picker select {
+src\App.css:3827:.ai-workbench .ai-prompt-picker select:focus-visible { outline: 2px solid rgba(95, 130, 118, .28); outline-offset: 1px; }
+src\App.css:3828:.ai-workbench .ai-composer-source-status {
+src\App.css:3837:  .ai-workbench .ai-composer-meta { align-items: flex-start; flex-direction: column; }
+src\App.css:3838:  .ai-workbench .ai-prompt-picker select { width: 150px; }
+src\App.css:3843:.ai-workbench .assistant-context-note > div,
+src\App.css:3844:.ai-workbench .ai-context-line,
+src\App.css:3845:.ai-workbench .ai-context-line > strong,
+src\App.css:3846:.ai-workbench .ai-composer,
+src\App.css:3847:.ai-workbench .ai-composer > *,
+src\App.css:3848:.ai-workbench .assistant-suggestions,
+src\App.css:3849:.ai-workbench .assistant-suggestions > * { min-width: 0; }
+src\App.css:3851:.ai-workbench .assistant-context-note small,
+src\App.css:3852:.ai-workbench .ai-context-line > strong,
+src\App.css:3853:.ai-workbench .ai-context-line > small,
+src\App.css:3854:.ai-workbench .assistant-suggestions button > span,
+src\App.css:3855:.ai-workbench .assistant-suggestions button strong,
+src\App.css:3856:.ai-workbench .assistant-suggestions button small {
+src\App.css:3862:.ai-workbench .assistant-suggestions button { min-width: 0; overflow: hidden; }
+src\App.css:3864:.ai-workbench .ai-composer-bottom {
+src\App.css:3871:.ai-workbench .ai-composer-bottom > span {
+src\App.css:3878:.ai-workbench .ai-composer-actions {
+src\App.css:3886:.ai-workbench .composer-preview,
+src\App.css:3887:.ai-workbench .composer-send { flex: 0 0 auto; }
+src\App.css:3890:  .ai-workbench .assistant-suggestions { grid-template-columns: minmax(0, 1fr); }
+src\App.css:3891:  .ai-workbench .assistant-suggestions button small { display: none; }
+src\App.css:3895:.ai-workbench,
+src\App.css:3896:.ai-workbench > *,
+src\App.css:3897:.ai-workbench .ai-panel,
+src\App.css:3898:.ai-workbench .ai-panel > *,
+src\App.css:3899:.ai-workbench .assistant-suggestions,
+src\App.css:3900:.ai-workbench .assistant-suggestions > *,
+src\App.css:3901:.ai-workbench .ai-composer,
+src\App.css:3902:.ai-workbench .ai-composer > * { min-width: 0; }
+src\App.css:3903:.ai-workbench .assistant-suggestions button {
+src\App.css:3907:.ai-workbench .assistant-suggestions button > span {
+src\App.css:3911:.ai-workbench .assistant-suggestions button strong,
+src\App.css:3912:.ai-workbench .assistant-suggestions button small {
+src\App.css:3918:.ai-workbench .ai-context-line { min-width: 0; }
+src\App.css:3919:.ai-workbench .ai-context-line > strong { min-width: 0; }
+src\App.css:3920:.ai-workbench .ai-composer-top {
+src\App.css:3924:.ai-workbench .ai-composer-top label { min-width: 0; }
+src\App.css:3925:.ai-workbench .ai-composer-top select { width: min(132px, 36vw); max-width: 132px; }
+src\App.css:3926:.ai-workbench .ai-composer-bottom {
+src\App.css:3932:.ai-workbench .ai-composer-bottom > span {
+src\App.css:3939:.ai-workbench .ai-composer-actions {
+src\App.css:3946:  .ai-workbench .assistant-suggestions { grid-template-columns: 1fr; }
+src\App.css:3947:  .ai-workbench .assistant-suggestions button small { display: none; }
+src\App.css:3948:  .ai-workbench .ai-composer-bottom > span { flex-basis: 100%; }
+src\App.css:3949:  .ai-workbench .ai-composer-actions { margin-left: auto; }
+src\App.css:3953:.ai-workbench .assistant-context-note > div { width: 0; flex: 1 1 auto; }
+src\App.css:3954:.ai-workbench .ai-context-line > strong { flex: 1 1 0; }
+src\App.css:3955:.ai-workbench .ai-context-line > small { max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+src\App.css:3956:.ai-workbench .ai-composer { min-width: 0; overflow: visible; }
+src\App.css:3957:.ai-workbench .ai-composer-top {
+src\App.css:3962:.ai-workbench .ai-composer-context { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+src\App.css:3963:.ai-workbench .ai-composer-top label { display: block; min-width: 0; }
+src\App.css:3964:.ai-workbench .ai-composer-top label > span { display: none; }
+src\App.css:3965:.ai-workbench .ai-composer-top select { width: 140px; max-width: 140px; }
+src\App.css:3966:.ai-workbench .ai-composer-bottom {
+src\App.css:3972:.ai-workbench .ai-composer-bottom > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+src\App.css:3973:.ai-workbench .ai-composer-actions { min-width: max-content; justify-self: end; }
+src\App.css:3974:.ai-workbench .composer-preview,
+src\App.css:3975:.ai-workbench .composer-send { flex: 0 0 auto; }
+src\App.css:3984:.ai-workbench {
+src\App.css:3992:.ai-workbench .assistant-lead { color: #69726d; font-size: 12px; }
+src\App.css:3993:.ai-workbench .assistant-context-note {
+src\App.css:4002:.ai-workbench .assistant-context-note > span { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: #8c9791; }
+src\App.css:4003:.ai-workbench .assistant-context-note div { min-width: 0; display: grid; gap: 3px; }
+src\App.css:4004:.ai-workbench .assistant-context-note strong { color: #4a5751; font-size: 11px; font-weight: 700; }
+src\App.css:4005:.ai-workbench .assistant-context-note small { overflow: hidden; color: #87918c; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+src\App.css:4006:.ai-workbench .assistant-suggestions { gap: 3px 9px; }
+src\App.css:4007:.ai-workbench .assistant-suggestions button { min-height: 40px; padding: 5px 3px; }
+src\App.css:4008:.ai-workbench .assistant-suggestions button > svg { color: #78857f; }
+src\App.css:4009:.ai-workbench .assistant-suggestions button strong { font-size: 10px; }
+src\App.css:4010:.ai-workbench .assistant-suggestions button small { font-size: 9px; }
+src\App.css:4011:.ai-workbench .ai-panel { gap: 10px; }
+src\App.css:4012:.ai-workbench .ai-context-line {
+src\App.css:4022:.ai-workbench .ai-context-line > span { color: #a06d4a; font-size: 9px; font-weight: 800; }
+src\App.css:4023:.ai-workbench .ai-context-line > strong { min-width: 0; overflow: hidden; color: #4e5b55; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+src\App.css:4024:.ai-workbench .ai-context-line > small { flex: 0 0 auto; color: #929b96; font-size: 9px; }
+src\App.css:4025:.ai-workbench .ai-control-label { padding-top: 0; }
+src\App.css:4026:.ai-workbench .ai-control-label > span { color: #4c5a54; font-size: 13px; font-weight: 700; }
+src\App.css:4027:.ai-workbench .ai-control-label small { color: #8a938e; font-size: 10px; }
+src\App.css:4028:.ai-workbench .ai-thread { flex: 1 1 auto; min-height: 290px; gap: 12px; padding: 5px 2px 10px; }
+src\App.css:4029:.ai-workbench .ai-thread-empty { min-height: 190px; padding: 22px 16px; border: 1px dashed #d4d8d4; background: #faf9f5; }
+src\App.css:4030:.ai-workbench .ai-thread-empty strong { color: #4b5953; font-size: 14px; }
+src\App.css:4031:.ai-workbench .ai-thread-empty small { color: #87918c; font-size: 11px; line-height: 1.7; }
+src\App.css:4032:.ai-workbench .ai-turn { max-width: 94%; gap: 6px; padding: 13px 14px; border-radius: 10px; }
+src\App.css:4033:.ai-workbench .ai-turn-label { color: #8b948f; font-size: 10px; }
+src\App.css:4034:.ai-workbench .ai-turn--user { background: #f0eee9; border-color: #dedbd3; }
+src\App.css:4035:.ai-workbench .ai-turn--user .ai-turn-label { color: #756e62; }
+src\App.css:4036:.ai-workbench .ai-turn--assistant { background: #fffefa; border-color: #deded8; }
+src\App.css:4037:.ai-workbench .ai-turn--status { max-width: 100%; background: #f7f5ef; border: 1px dashed #d5d0c5; }
+src\App.css:4038:.ai-workbench .ai-turn--status p { display: flex; align-items: center; gap: 7px; color: #766f64; }
+src\App.css:4044:.ai-workbench .ai-response-text { gap: 9px; }
+src\App.css:4045:.ai-workbench .ai-response-text > p,
+src\App.css:4046:.ai-workbench .ai-response-line p { color: #465650; font-size: 14px; line-height: 1.82; }
+src\App.css:4047:.ai-workbench .ai-response-heading { color: #304d44; font-size: 15px; line-height: 1.55; }
+src\App.css:4048:.ai-workbench .ai-response-line { grid-template-columns: 18px minmax(0, 1fr); gap: 8px; }
+src\App.css:4049:.ai-workbench .ai-response-line--ordered > span { color: #a06d4a; font-size: 11px; }
+src\App.css:4050:.ai-workbench .ai-composer { gap: 10px; padding: 14px; border-color: #d8dcd8; background: #fbfaf6; box-shadow: 0 5px 15px rgba(50, 61, 56, .06); }
+src\App.css:4051:.ai-workbench .ai-composer-context,
+src\App.css:4052:.ai-workbench .ai-composer-top label { color: #7b8580; font-size: 10px; }
+src\App.css:4053:.ai-workbench .ai-composer-dot { background: #8c9791; box-shadow: none; }
+src\App.css:4054:.ai-workbench .ai-composer-top select { min-height: 31px !important; color: #5c6862 !important; background: #f5f4ef !important; border-color: #d8dcd8 !important; font-size: 10px !important; }
+src\App.css:4055:.ai-workbench .ai-composer > textarea { min-height: 126px; padding: 5px 2px; color: #3f4e48; font-size: 14px; line-height: 1.75; }
+src\App.css:4056:.ai-workbench .ai-composer-bottom > span { color: #8b948f; font-size: 10px; }
+src\App.css:4057:.ai-workbench .composer-preview { min-height: 31px; color: #68756f; font-size: 10px; }
+src\App.css:4058:.ai-workbench .composer-send { min-height: 35px; background: #59665f; border-color: #59665f; box-shadow: none; font-size: 10px; }
+src\App.css:4059:.ai-workbench .composer-send:hover:not(:disabled) { background: #46534d; }
+src\App.css:4060:.ai-workbench .ai-preview { color: #65716b; background: #f1f0eb; border-color: #d9d9d2; }
+src\App.css:4063:.ai-workbench .assistant-status,
+src\App.css:4064:.ai-workbench .assistant-status.is-ready {
+src\App.css:4073:.ai-workbench .assistant-status.is-ready > span { background: #5f8276; box-shadow: 0 0 0 3px rgba(95, 130, 118, .1); }
+src\App.css:4074:.ai-workbench .assistant-suggestions {
+src\App.css:4078:.ai-workbench .assistant-suggestions > span { grid-column: 1 / -1; }
+src\App.css:4079:.ai-workbench .assistant-suggestions button {
+src\App.css:4086:.ai-workbench .assistant-suggestions button:hover:not(:disabled) { border-color: rgba(83, 99, 92, .14); background: rgba(255, 255, 255, .44); }
+src\App.css:4087:.ai-workbench .assistant-suggestions button strong { font-size: 10px; }
+src\App.css:4088:.ai-workbench .assistant-suggestions button small { font-size: 8px; line-height: 1.35; }
+src\App.css:4090:.ai-workbench .ai-panel {
+src\App.css:4096:.ai-workbench .ai-context-card,
+src\App.css:4097:.ai-workbench .ai-control-label,
+src\App.css:4098:.ai-workbench .ai-composer,
+src\App.css:4099:.ai-workbench .ai-preview,
+src\App.css:4100:.ai-workbench .ai-provider-note,
+src\App.css:4101:.ai-workbench .ai-review,
+src\App.css:4102:.ai-workbench .ai-change-summary { flex: 0 0 auto; }
+src\App.css:4116:.ai-workbench .ai-control-label { padding-top: 4px; font-size: 12px; }
+src\App.css:4117:.ai-workbench .ai-control-label small { font-size: 10px; }
+src\App.css:4118:.ai-workbench .ai-thread {
+src\App.css:4125:.ai-workbench .ai-thread-empty {
+src\App.css:4132:.ai-workbench .ai-thread-empty-mark { color: #687b74; background: #edf1ee; }
+src\App.css:4133:.ai-workbench .ai-thread-empty strong { font-size: 13px; }
+src\App.css:4134:.ai-workbench .ai-thread-empty small { font-size: 10px; line-height: 1.65; }
+src\App.css:4135:.ai-workbench .ai-turn { max-width: 96%; gap: 6px; padding: 11px 12px; border-radius: 8px; }
+src\App.css:4136:.ai-workbench .ai-turn-label { font-size: 9px; letter-spacing: .06em; }
+src\App.css:4137:.ai-workbench .ai-turn--user { background: #edf1ee; border-color: #d8e0db; }
+src\App.css:4138:.ai-workbench .ai-turn--user .ai-turn-label { color: #556961; }
+src\App.css:4139:.ai-workbench .ai-turn--assistant { background: rgba(255, 255, 255, .78); border-color: #d9dfdb; }
+src\App.css:4140:.ai-workbench .ai-turn--tool { border-left-color: #a8704e; }
+src\App.css:4141:.ai-workbench .ai-turn--error { background: rgba(193, 95, 73, .08); }
+src\App.css:4156:.ai-workbench .ai-turn > p { margin: 0; font-size: 12px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+src\App.css:4158:.ai-workbench .ai-composer {
+src\App.css:4166:.ai-workbench .ai-composer:focus-within { border-color: #aeb9b3; box-shadow: 0 4px 14px rgba(39, 69, 63, .08); }
+src\App.css:4167:.ai-workbench .ai-composer-top { align-items: center; }
+src\App.css:4168:.ai-workbench .ai-composer-context,
+src\App.css:4169:.ai-workbench .ai-composer-top label { font-size: 10px; }
+src\App.css:4170:.ai-workbench .ai-composer-dot { background: #75867f; box-shadow: 0 0 0 3px rgba(117, 134, 127, .1); }
+src\App.css:4171:.ai-workbench .ai-composer-top select {
+src\App.css:4179:.ai-workbench .ai-composer > textarea {
+src\App.css:4184:.ai-workbench .ai-composer > textarea:focus,
+src\App.css:4185:.ai-workbench .ai-composer > textarea:focus-visible { outline: 0 !important; box-shadow: none; }
+src\App.css:4186:.ai-workbench .ai-composer-bottom > span { font-size: 9px; }
+src\App.css:4187:.ai-workbench .composer-preview { min-height: 30px; font-size: 9px; }
+src\App.css:4188:.ai-workbench .composer-send { min-height: 33px; padding-inline: 10px; font-size: 10px; border-radius: 6px; }
+src\App.css:5120:.ai-workbench {
+src\App.css:5123:.ai-workbench .ai-panel {
+src\App.css:5129:.ai-workbench .ai-control-label {
+src\App.css:5135:.ai-workbench .ai-thread-empty {
+src\App.css:5144:.ai-workbench .ai-thread-empty .ai-turn-label { display: block; }
+src\App.css:5145:.ai-workbench .ai-thread-empty > p { margin: 0; color: #465650; font-size: 13px; line-height: 1.7; }
+src\App.css:5150:.ai-workbench .ai-panel {
+src\App.css:5156:.ai-workbench .ai-thread {
+src\App.css:5163:.ai-workbench .ai-composer {
+src\App.css:5167:.ai-workbench .ai-composer > textarea {
+src\App.css:5173:.ai-workbench .assistant-context-note > div,
+src\App.css:5174:.ai-workbench .ai-context-line,
+src\App.css:5175:.ai-workbench .ai-context-line > strong,
+src\App.css:5176:.ai-workbench .ai-composer,
+src\App.css:5177:.ai-workbench .ai-composer > *,
+src\App.css:5178:.ai-workbench .assistant-suggestions,
+src\App.css:5179:.ai-workbench .assistant-suggestions > * { min-width: 0; }
+src\App.css:5181:.ai-workbench .assistant-context-note small,
+src\App.css:5182:.ai-workbench .ai-context-line > strong,
+src\App.css:5183:.ai-workbench .ai-context-line > small,
+src\App.css:5184:.ai-workbench .assistant-suggestions button > span,
+src\App.css:5185:.ai-workbench .assistant-suggestions button strong,
+src\App.css:5186:.ai-workbench .assistant-suggestions button small {
+src\App.css:5192:.ai-workbench .assistant-suggestions button { min-width: 0; overflow: hidden; }
+src\App.css:5194:.ai-workbench .ai-composer-bottom {
+src\App.css:5201:.ai-workbench .ai-composer-bottom > span {
+src\App.css:5208:.ai-workbench .ai-composer-actions {
+src\App.css:5216:.ai-workbench .composer-preview,
+src\App.css:5217:.ai-workbench .composer-send { flex: 0 0 auto; }
+src\App.css:5220:  .ai-workbench .assistant-suggestions { grid-template-columns: minmax(0, 1fr); }
+src\App.css:5221:  .ai-workbench .assistant-suggestions button small { display: none; }

@@ -5,7 +5,6 @@ const root = resolve(import.meta.dirname, "..");
 const manifestPath = resolve(root, "tests/fixtures/office/manifest.json");
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 const fixtureRoot = resolve(root, "tests/fixtures/office/generated");
-const browserFixtureRoot = resolve(root, "public/editor-poc/samples");
 const png1x1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 
 const crcTable = Array.from({ length: 256 }, (_, n) => {
@@ -123,13 +122,10 @@ function officeEntries(sample) {
 }
 
 await mkdir(fixtureRoot, { recursive: true });
-await mkdir(browserFixtureRoot, { recursive: true });
-await writeFile(resolve(browserFixtureRoot, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 for (const sample of manifest.samples) {
   const target = resolve(root, "tests/fixtures/office", "generated", `${sample.id}.${sample.format}`);
   await mkdir(dirname(target), { recursive: true });
   const bytes = zip(officeEntries(sample));
   await writeFile(target, bytes);
-  await writeFile(resolve(browserFixtureRoot, `${sample.id}.${sample.format}`), bytes);
 }
 console.log(`Generated ${manifest.samples.length} deterministic OOXML fixtures in ${fixtureRoot}`);

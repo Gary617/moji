@@ -91,15 +91,14 @@ pub(crate) fn parse_document_mentions(prompt: &str) -> Vec<String> {
         let rest = &prompt[start + "@文档".len()..];
         let candidate = if let Some(value) = rest.strip_prefix('(') {
             value.split_once(')').map(|(value, _)| value)
-        } else if let Some(value) = rest.strip_prefix(':') {
-            Some(value.split_whitespace().next().unwrap_or_default())
         } else {
-            None
+            rest.strip_prefix(':')
+                .map(|value| value.split_whitespace().next().unwrap_or_default())
         };
-        if let Some(value) = candidate.map(str::trim).filter(|value| !value.is_empty()) {
-            if !result.iter().any(|item| item == value) {
-                result.push(value.to_owned());
-            }
+        if let Some(value) = candidate.map(str::trim).filter(|value| !value.is_empty())
+            && !result.iter().any(|item| item == value)
+        {
+            result.push(value.to_owned());
         }
         index = start + "@文档".len();
     }
@@ -150,11 +149,7 @@ pub(crate) fn prepare_context<S: DocumentContextSource>(
             .filter(|item| item.document_id == id)
             .map(|item| item.page)
             .collect::<Vec<_>>();
-        let selected_pages = if pages.is_empty() {
-            vec![None]
-        } else {
-            pages.into_iter().map(|page| page).collect()
-        };
+        let selected_pages = if pages.is_empty() { vec![None] } else { pages };
         let mut source_pages = Vec::new();
         let mut source_chars = 0u64;
         for page in selected_pages {

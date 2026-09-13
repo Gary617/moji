@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 
 static IDENTIFIER_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-pub const LIBRARY_SCHEMA_VERSION: i64 = 5;
+pub const LIBRARY_SCHEMA_VERSION: i64 = 8;
 
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(transparent)]
@@ -55,6 +55,7 @@ impl SourceKind {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DocumentFormat {
+    Doc,
     Docx,
     Pptx,
     Xlsx,
@@ -71,6 +72,7 @@ pub enum DocumentFormat {
 impl DocumentFormat {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
+            Self::Doc => "doc",
             Self::Docx => "docx",
             Self::Pptx => "pptx",
             Self::Xlsx => "xlsx",
@@ -87,6 +89,7 @@ impl DocumentFormat {
 
     pub(crate) fn parse(value: &str) -> Option<Self> {
         match value {
+            "doc" => Some(Self::Doc),
             "docx" => Some(Self::Docx),
             "pptx" => Some(Self::Pptx),
             "xlsx" => Some(Self::Xlsx),
@@ -207,6 +210,7 @@ impl ScanEventKind {
 pub struct SourceRootRecord {
     pub id: SourceRootId,
     pub kind: SourceKind,
+    #[serde(skip_serializing)]
     pub canonical_path: String,
     pub display_name: String,
     pub created_at_ms: i64,
@@ -224,6 +228,9 @@ pub struct SourceRegistration {
 pub struct DocumentRecord {
     pub id: DocumentId,
     pub source_root_id: SourceRootId,
+    /// The normalized local path is intentionally exposed only for the document
+    /// tooltip. Source roots remain opaque to the renderer.
+    #[serde(rename = "path")]
     pub canonical_path: String,
     pub display_name: String,
     pub format: DocumentFormat,
@@ -327,7 +334,7 @@ pub struct SearchDocument {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct SearchQuery {
     pub text: Option<String>,
     pub formats: Vec<DocumentFormat>,
@@ -349,14 +356,6 @@ pub struct SearchResults {
     pub items: Vec<SearchDocument>,
     pub total: u64,
     pub query_time_ms: u64,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IndexRebuildSummary {
-    pub indexed_count: u64,
-    pub failed_count: u64,
-    pub duration_ms: u64,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -388,6 +387,7 @@ pub struct DocumentOpenResult {
     pub expected_sha256: String,
     pub content: Option<String>,
     pub binary_content: Option<String>,
+    pub binary_media_type: Option<String>,
     pub capabilities: DocumentCapabilities,
     pub source_locator: SourceLocator,
     pub warnings: Vec<String>,
@@ -400,6 +400,16 @@ pub struct DocumentSaveResult {
     pub snapshot_id: String,
     pub new_sha256: String,
     pub target_path: Option<String>,
+    pub source_preserved: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSaveAsResult {
+    pub document_id: DocumentId,
+    pub cancelled: bool,
+    pub target_name: Option<String>,
+    pub new_sha256: Option<String>,
     pub source_preserved: bool,
 }
 
@@ -451,6 +461,16 @@ pub struct AiActionRecord {
     pub created_at_ms: i64,
 }
 
+pub(crate) struct AiActionInput<'a> {
+    pub id: &'a str,
+    pub session_id: &'a str,
+    pub document_id: Option<&'a DocumentId>,
+    pub permission: &'a str,
+    pub tool: &'a str,
+    pub outcome: &'a str,
+    pub details: &'a Value,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanJobRecord {
@@ -458,12 +478,30 @@ pub struct ScanJobRecord {
     pub source_root_id: SourceRootId,
     pub state: ScanJobState,
     pub scanned_count: u64,
+    pub total_count: u64,
+    pub current_file_name: Option<String>,
     pub changed_count: u64,
     pub failed_count: u64,
     pub retry_count: u32,
     pub error_code: Option<String>,
     pub created_at_ms: i64,
+    pub started_at_ms: Option<i64>,
+    pub completed_at_ms: Option<i64>,
     pub updated_at_ms: i64,
+}
+
+pub(crate) struct ScanJobUpdate<'a> {
+    pub id: &'a ScanJobId,
+    pub state: ScanJobState,
+    pub scanned_count: u64,
+    pub total_count: u64,
+    pub current_file_name: Option<&'a str>,
+    pub changed_count: u64,
+    pub failed_count: u64,
+    pub retry_count: u32,
+    pub error_code: Option<&'a str>,
+    pub started_at_ms: Option<i64>,
+    pub completed_at_ms: Option<i64>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -485,6 +523,29 @@ pub struct OcrJobRecord {
     pub model_bytes: u64,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
+}
+
+pub(crate) struct OcrJobUpdate<'a> {
+    pub id: &'a OcrJobId,
+    pub state: ScanJobState,
+    pub page_count: u32,
+    pub processed_count: u32,
+    pub failed_count: u32,
+    pub retry_count: u32,
+    pub error_code: Option<&'a str>,
+    pub duration_ms: Option<u64>,
+}
+
+pub(crate) struct OcrPageUpdate<'a> {
+    pub document_id: &'a DocumentId,
+    pub page: u32,
+    pub source: &'a str,
+    pub text: &'a str,
+    pub confidence: Option<f32>,
+    pub width: u32,
+    pub height: u32,
+    pub rotation_degrees: u32,
+    pub boxes: &'a [OcrTextBox],
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -536,25 +597,25 @@ pub enum LibraryErrorCode {
     SourceNotFound,
     UnauthorizedPath,
     ExcludedPath,
-    DuplicateSource,
     UnsupportedFile,
     PermissionDenied,
     MetadataReadFailed,
     HashReadFailed,
     DatabaseFailed,
     MigrationFailed,
+    AuditIntegrityFailed,
     ScanJobNotFound,
     InvalidJobState,
-    ScanCancelled,
     WatcherUnavailable,
     LibraryUnavailable,
     DocumentNotFound,
-    DocumentOpenFailed,
     DocumentReadFailed,
+    DocumentCorrupt,
     DocumentWriteFailed,
     DocumentConflict,
     DocumentReadOnly,
     DocumentLocked,
+    SaveAsTargetExists,
     SnapshotFailed,
     SnapshotNotFound,
     AnnotationNotFound,
@@ -576,25 +637,25 @@ impl LibraryErrorCode {
             Self::SourceNotFound => "SOURCE_NOT_FOUND",
             Self::UnauthorizedPath => "UNAUTHORIZED_PATH",
             Self::ExcludedPath => "EXCLUDED_PATH",
-            Self::DuplicateSource => "DUPLICATE_SOURCE",
             Self::UnsupportedFile => "UNSUPPORTED_FILE",
             Self::PermissionDenied => "PERMISSION_DENIED",
             Self::MetadataReadFailed => "METADATA_READ_FAILED",
             Self::HashReadFailed => "HASH_READ_FAILED",
             Self::DatabaseFailed => "DATABASE_FAILED",
             Self::MigrationFailed => "MIGRATION_FAILED",
+            Self::AuditIntegrityFailed => "AUDIT_INTEGRITY_FAILED",
             Self::ScanJobNotFound => "SCAN_JOB_NOT_FOUND",
             Self::InvalidJobState => "INVALID_JOB_STATE",
-            Self::ScanCancelled => "SCAN_CANCELLED",
             Self::WatcherUnavailable => "WATCHER_UNAVAILABLE",
             Self::LibraryUnavailable => "LIBRARY_UNAVAILABLE",
             Self::DocumentNotFound => "DOCUMENT_NOT_FOUND",
-            Self::DocumentOpenFailed => "DOCUMENT_OPEN_FAILED",
             Self::DocumentReadFailed => "DOCUMENT_READ_FAILED",
+            Self::DocumentCorrupt => "DOCUMENT_CORRUPT",
             Self::DocumentWriteFailed => "DOCUMENT_WRITE_FAILED",
             Self::DocumentConflict => "DOCUMENT_CONFLICT",
             Self::DocumentReadOnly => "DOCUMENT_READ_ONLY",
             Self::DocumentLocked => "DOCUMENT_LOCKED",
+            Self::SaveAsTargetExists => "SAVE_AS_TARGET_EXISTS",
             Self::SnapshotFailed => "SNAPSHOT_FAILED",
             Self::SnapshotNotFound => "SNAPSHOT_NOT_FOUND",
             Self::AnnotationNotFound => "ANNOTATION_NOT_FOUND",
@@ -687,4 +748,72 @@ pub(crate) fn invalid_state_error(expected: &[ScanJobState], actual: ScanJobStat
         "scan job cannot transition from its current state",
     )
     .with_details(json!({ "expected": expected, "actual": actual.as_str() }))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{
+        DocumentFormat, DocumentId, DocumentRecord, DocumentStatus, SearchQuery, SourceKind,
+        SourceRootId, SourceRootRecord,
+    };
+
+    #[test]
+    fn renderer_dtos_expose_document_path_but_keep_source_roots_opaque() {
+        let source = SourceRootRecord {
+            id: SourceRootId("src-private".to_owned()),
+            kind: SourceKind::Directory,
+            canonical_path: r"C:\Users\Private\Documents".to_owned(),
+            display_name: "Documents".to_owned(),
+            created_at_ms: 1,
+        };
+        let document = DocumentRecord {
+            id: DocumentId("doc-private".to_owned()),
+            source_root_id: source.id.clone(),
+            canonical_path: r"C:\Users\Private\Documents\notes.md".to_owned(),
+            display_name: "notes.md".to_owned(),
+            format: DocumentFormat::Markdown,
+            size_bytes: 12,
+            modified_at_ms: 2,
+            file_identity: None,
+            content_sha256: "hash".to_owned(),
+            status: DocumentStatus::Present,
+            content_state: "ready".to_owned(),
+        };
+
+        let source_json = serde_json::to_value(source).unwrap();
+        let document_json = serde_json::to_value(document).unwrap();
+
+        assert_eq!(
+            source_json,
+            json!({
+                "id": "src-private",
+                "kind": "directory",
+                "displayName": "Documents",
+                "createdAtMs": 1,
+            })
+        );
+        assert_eq!(
+            document_json.get("path"),
+            Some(&json!(r"C:\Users\Private\Documents\notes.md"))
+        );
+        assert!(document_json.get("canonicalPath").is_none());
+    }
+
+    #[test]
+    fn search_query_defaults_omitted_optional_filters() {
+        let query: SearchQuery = serde_json::from_value(json!({
+            "limit": 100,
+        }))
+        .expect("search requests may omit unselected filters");
+
+        assert_eq!(
+            query,
+            SearchQuery {
+                limit: 100,
+                ..SearchQuery::default()
+            }
+        );
+    }
 }

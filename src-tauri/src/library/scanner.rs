@@ -6,15 +6,17 @@ use std::{
 };
 
 use file_id::get_file_id;
+use quick_xml::{Reader, events::Event};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use super::{
     database::LibraryDatabase,
     model::{
-        DocumentId, DocumentRecord, DocumentStatus, LibraryError, LibraryErrorCode, LibraryResult,
-        ScanEvent, ScanEventKind, ScanJobId, ScanJobRecord, ScanJobState, ScanSummary, SourceKind,
-        SourceRegistration, SourceRootId, WatchStatus, new_identifier, now_unix_ms,
+        AiActionInput, AiActionRecord, DocumentFormat, DocumentId, DocumentRecord, DocumentStatus,
+        LibraryError, LibraryErrorCode, LibraryResult, ScanEvent, ScanEventKind, ScanJobId,
+        ScanJobRecord, ScanJobState, ScanJobUpdate, ScanSummary, SourceKind, SourceRegistration,
+        SourceRootId, WatchStatus, new_identifier, now_unix_ms,
     },
     policy::{
         AuthorizedSource, authorize_candidate, authorize_source, canonical_path_string,
@@ -28,6 +30,11 @@ pub(crate) struct LibraryService {
     watchers: HashMap<SourceRootId, LibraryWatcher>,
     pub(crate) ocr_model_dir: PathBuf,
 }
+
+// Persisting one event for every unsupported entry can grow the database by
+// hundreds of thousands of rows during a broad scan. Keep representative
+// details while the counters on the scan job carry the complete progress.
+const MAX_SCAN_EVENT_DETAILS: usize = 256;
 
 impl LibraryService {
     pub(crate) fn open(path: impl AsRef<Path>) -> LibraryResult<Self> {
@@ -55,12 +62,20 @@ impl LibraryService {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn in_memory() -> LibraryResult<Self> {
         Ok(Self {
             database: LibraryDatabase::in_memory()?,
             watchers: HashMap::new(),
             ocr_model_dir: std::env::temp_dir().join("moji-ocr-models"),
         })
+    }
+
+    pub(crate) fn record_ai_action(
+        &self,
+        input: AiActionInput<'_>,
+    ) -> LibraryResult<AiActionRecord> {
+        self.database.record_ai_action(input)
     }
 
     pub(crate) fn register_source(
@@ -101,6 +116,7 @@ impl LibraryService {
         queue.retry(scan_job_id)
     }
 
+    #[cfg(test)]
     pub(crate) fn scan_source(
         &mut self,
         source_root_id: &SourceRootId,
@@ -133,15 +149,19 @@ impl LibraryService {
                 return self.complete_missing_source(job, known_documents);
             }
             Err(error) => {
-                let _ = self.database.update_job(
-                    &job.id,
-                    ScanJobState::Failed,
-                    0,
-                    0,
-                    1,
-                    job.retry_count,
-                    Some(&error.code),
-                );
+                let _ = self.database.update_job(ScanJobUpdate {
+                    id: &job.id,
+                    state: ScanJobState::Failed,
+                    scanned_count: 0,
+                    total_count: job.total_count,
+                    current_file_name: None,
+                    changed_count: 0,
+                    failed_count: 1,
+                    retry_count: job.retry_count,
+                    error_code: Some(&error.code),
+                    started_at_ms: job.started_at_ms,
+                    completed_at_ms: Some(now_unix_ms()),
+                });
                 return Err(error);
             }
         };
@@ -154,21 +174,80 @@ impl LibraryService {
         let mut scanned_count = 0u64;
         let mut changed_count = 0u64;
 
-        let files = match collect_files(&source, &mut pre_events, &job.id) {
+        // Publish a running state before walking the directory. Large trees can take
+        // minutes to enumerate, and the UI must be able to show activity and cancel it.
+        job = self.database.update_job(ScanJobUpdate {
+            id: &job.id,
+            state: ScanJobState::Running,
+            scanned_count,
+            total_count: 0,
+            current_file_name: Some("正在枚举目录"),
+            changed_count,
+            failed_count: 0,
+            retry_count: job.retry_count,
+            error_code: None,
+            started_at_ms: Some(job.started_at_ms.unwrap_or_else(now_unix_ms)),
+            completed_at_ms: None,
+        })?;
+
+        let job_id = job.id.clone();
+        let retry_count = job.retry_count;
+        let mut discovered_count = 0u64;
+        let mut files = match collect_files(&source, &mut pre_events, &job_id, &mut |path| {
+            discovered_count += 1;
+            if discovered_count % 128 != 0 {
+                return Ok(false);
+            }
+            let current_file_name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("文件");
+            Ok(self
+                .database
+                .update_running_progress(
+                    &job_id,
+                    discovered_count,
+                    0,
+                    Some(current_file_name),
+                    changed_count,
+                    0,
+                    retry_count,
+                )?
+                .is_none())
+        }) {
             Ok(files) => files,
             Err(error) => {
-                let _ = self.database.update_job(
-                    &job.id,
-                    ScanJobState::Failed,
-                    0,
-                    0,
-                    1,
-                    job.retry_count,
-                    Some(&error.code),
-                );
+                let _ = self.database.update_job(ScanJobUpdate {
+                    id: &job.id,
+                    state: ScanJobState::Failed,
+                    scanned_count: 0,
+                    total_count: job.total_count,
+                    current_file_name: None,
+                    changed_count: 0,
+                    failed_count: 1,
+                    retry_count: job.retry_count,
+                    error_code: Some(&error.code),
+                    started_at_ms: job.started_at_ms,
+                    completed_at_ms: Some(now_unix_ms()),
+                });
                 return Err(error);
             }
         };
+        if files.interrupted {
+            for event in pre_events {
+                let _ = self.database.add_event(
+                    &job_id,
+                    event.document_id.as_ref(),
+                    event.kind,
+                    &event.details,
+                );
+            }
+            return Ok(ScanSummary {
+                job: self.current_job(&job_id)?,
+                events: Vec::new(),
+            });
+        }
+        let files = std::mem::take(&mut files.paths);
         let mut events = Vec::new();
         for event in pre_events {
             events.push(self.database.add_event(
@@ -182,6 +261,20 @@ impl LibraryService {
             .iter()
             .filter(|event| event.kind == ScanEventKind::Error)
             .count() as u64;
+        let total_count = files.len() as u64;
+        job = self.database.update_job(ScanJobUpdate {
+            id: &job.id,
+            state: ScanJobState::Running,
+            scanned_count,
+            total_count,
+            current_file_name: None,
+            changed_count,
+            failed_count,
+            retry_count: job.retry_count,
+            error_code: None,
+            started_at_ms: Some(job.started_at_ms.unwrap_or_else(now_unix_ms)),
+            completed_at_ms: None,
+        })?;
         for path in files {
             if let Some(current) = self.interrupted_job(&job.id)? {
                 return Ok(ScanSummary {
@@ -190,6 +283,10 @@ impl LibraryService {
                 });
             }
             let canonical = canonical_path_string(&path);
+            let current_file_name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("文件");
             seen_paths.insert(canonical.clone());
             scanned_count += 1;
             match self.reconcile_file(&source, &job.source_root_id, &job.id, &path) {
@@ -222,6 +319,8 @@ impl LibraryService {
             let Some(updated) = self.database.update_running_progress(
                 &job.id,
                 scanned_count,
+                total_count,
+                Some(current_file_name),
                 changed_count,
                 failed_count,
                 job.retry_count,
@@ -242,6 +341,18 @@ impl LibraryService {
                     events,
                 });
             }
+            // Images are intentionally outside the new scan scope. Keep existing
+            // image records untouched instead of marking them missing when a
+            // document source is rescanned.
+            if matches!(
+                document.format,
+                DocumentFormat::Png
+                    | DocumentFormat::Jpg
+                    | DocumentFormat::Tiff
+                    | DocumentFormat::Bmp
+            ) {
+                continue;
+            }
             if document.status != DocumentStatus::Missing
                 && !seen_paths.contains(&document.canonical_path)
             {
@@ -256,6 +367,8 @@ impl LibraryService {
                 let Some(updated) = self.database.update_running_progress(
                     &job.id,
                     scanned_count,
+                    total_count,
+                    None,
                     changed_count,
                     failed_count,
                     job.retry_count,
@@ -281,15 +394,19 @@ impl LibraryService {
         } else {
             ScanJobState::Completed
         };
-        job = self.database.update_job(
-            &job.id,
-            final_state,
+        job = self.database.update_job(ScanJobUpdate {
+            id: &job.id,
+            state: final_state,
             scanned_count,
+            total_count,
+            current_file_name: None,
             changed_count,
             failed_count,
-            job.retry_count,
-            (failed_count > 0).then_some("SCAN_FILE_FAILED"),
-        )?;
+            retry_count: job.retry_count,
+            error_code: (failed_count > 0).then_some("SCAN_FILE_FAILED"),
+            started_at_ms: job.started_at_ms,
+            completed_at_ms: Some(now_unix_ms()),
+        })?;
         Ok(ScanSummary { job, events })
     }
 
@@ -324,15 +441,19 @@ impl LibraryService {
             )?);
             changed_count += 1;
         }
-        job = self.database.update_job(
-            &job.id,
-            ScanJobState::Completed,
-            0,
+        job = self.database.update_job(ScanJobUpdate {
+            id: &job.id,
+            state: ScanJobState::Completed,
+            scanned_count: 0,
+            total_count: 0,
+            current_file_name: None,
             changed_count,
-            0,
-            job.retry_count,
-            None,
-        )?;
+            failed_count: 0,
+            retry_count: job.retry_count,
+            error_code: None,
+            started_at_ms: job.started_at_ms,
+            completed_at_ms: Some(now_unix_ms()),
+        })?;
         Ok(ScanSummary { job, events })
     }
 
@@ -393,10 +514,30 @@ impl LibraryService {
             .retryable()
             .with_details(json!({ "kind": format!("{:?}", error.kind()) }))
         })?;
-        let hash = hash_file(&path)?;
-        let identity = get_file_id(&path).ok().map(|value| format!("{value:?}"));
         let canonical = canonical_path_string(&path);
         let existing_path = self.database.document_by_path(&canonical)?;
+        if let Some(existing) = existing_path.as_ref() {
+            // A later scan is the explicit way to bring a softly removed file
+            // back into the library; the source file itself was never deleted.
+            self.database.restore_from_library_scan(&existing.id)?;
+        }
+        let modified_at_ms = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_millis() as i64)
+            .unwrap_or(0);
+        if let Some(existing) = existing_path.as_ref() {
+            if existing.status == DocumentStatus::Present
+                && existing.format == format
+                && existing.size_bytes == metadata.len()
+                && existing.modified_at_ms == modified_at_ms
+            {
+                return Ok(None);
+            }
+        }
+        let hash = hash_file(&path)?;
+        let identity = get_file_id(&path).ok().map(|value| format!("{value:?}"));
         let existing = if existing_path.is_some() {
             existing_path
         } else if let Some(identity) = identity.as_deref() {
@@ -427,12 +568,7 @@ impl LibraryService {
                 .to_owned(),
             format,
             size_bytes: metadata.len(),
-            modified_at_ms: metadata
-                .modified()
-                .ok()
-                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|duration| duration.as_millis() as i64)
-                .unwrap_or(0),
+            modified_at_ms,
             file_identity: identity,
             content_sha256: hash,
             status: DocumentStatus::Present,
@@ -454,9 +590,26 @@ impl LibraryService {
                 ScanEventKind::Renamed
             }
             Some(_) if changed => ScanEventKind::Updated,
-            Some(_) => return Ok(None),
+            Some(_) => {
+                if matches!(
+                    document.format,
+                    super::model::DocumentFormat::Doc
+                        | super::model::DocumentFormat::Docx
+                        | super::model::DocumentFormat::Markdown
+                        | super::model::DocumentFormat::Text
+                        | super::model::DocumentFormat::Csv
+                ) {
+                    let body = extract_indexable_text(&path, document.format).unwrap_or_default();
+                    self.database
+                        .set_document_search_fields(&document.id, &body, "")?;
+                }
+                return Ok(None);
+            }
         };
         self.database.upsert_document(&document, scan_job_id)?;
+        let body = extract_indexable_text(&path, document.format).unwrap_or_default();
+        self.database
+            .set_document_search_fields(&document.id, &body, "")?;
         let event = self.database.add_event(
             scan_job_id,
             Some(&document.id),
@@ -467,20 +620,115 @@ impl LibraryService {
     }
 }
 
-fn collect_files(
+fn extract_indexable_text(
+    path: &Path,
+    format: super::model::DocumentFormat,
+) -> LibraryResult<String> {
+    match format {
+        super::model::DocumentFormat::Markdown
+        | super::model::DocumentFormat::Text
+        | super::model::DocumentFormat::Csv => fs::read_to_string(path).map_err(|error| {
+            LibraryError::new(LibraryErrorCode::DocumentReadFailed, "正文内容无法读取")
+                .retryable()
+                .with_details(json!({ "kind": format!("{:?}", error.kind()) }))
+        }),
+        super::model::DocumentFormat::Docx => {
+            let file = File::open(path).map_err(|error| {
+                LibraryError::new(LibraryErrorCode::DocumentReadFailed, "DOCX 文件无法读取")
+                    .retryable()
+                    .with_details(json!({ "kind": format!("{:?}", error.kind()) }))
+            })?;
+            let mut archive = zip::ZipArchive::new(file).map_err(|_| {
+                LibraryError::new(LibraryErrorCode::DocumentReadFailed, "DOCX 压缩包无法读取")
+            })?;
+            let mut xml = String::new();
+            archive
+                .by_name("word/document.xml")
+                .map_err(|_| {
+                    LibraryError::new(LibraryErrorCode::DocumentReadFailed, "DOCX 正文部件不存在")
+                })?
+                .read_to_string(&mut xml)
+                .map_err(|_| {
+                    LibraryError::new(
+                        LibraryErrorCode::DocumentReadFailed,
+                        "DOCX 正文编码无法读取",
+                    )
+                })?;
+            let mut reader = Reader::from_str(&xml);
+            reader.config_mut().trim_text(true);
+            let mut text = String::new();
+            loop {
+                match reader.read_event() {
+                    Ok(Event::Text(value)) => {
+                        let value = value.decode().map_err(|_| {
+                            LibraryError::new(
+                                LibraryErrorCode::DocumentReadFailed,
+                                "DOCX 文本无法解码",
+                            )
+                        })?;
+                        if !text.is_empty() {
+                            text.push(' ');
+                        }
+                        text.push_str(&value);
+                    }
+                    Ok(Event::Eof) => break,
+                    Ok(_) => {}
+                    Err(_) => {
+                        return Err(LibraryError::new(
+                            LibraryErrorCode::DocumentReadFailed,
+                            "DOCX XML 无法解析",
+                        ));
+                    }
+                }
+            }
+            Ok(text)
+        }
+        // Legacy binary DOC has no bundled parser in the desktop runtime yet.
+        super::model::DocumentFormat::Doc => Ok(String::new()),
+        _ => Ok(String::new()),
+    }
+}
+
+struct FileCollection {
+    paths: Vec<PathBuf>,
+    interrupted: bool,
+}
+
+fn collect_files<F>(
     source: &AuthorizedSource,
     events: &mut Vec<ScanEvent>,
     scan_job_id: &ScanJobId,
-) -> LibraryResult<Vec<PathBuf>> {
+    should_stop: &mut F,
+) -> LibraryResult<FileCollection>
+where
+    F: FnMut(&Path) -> LibraryResult<bool>,
+{
     let mut files = Vec::new();
     if source.kind == SourceKind::SingleFile {
         if format_from_path(&source.canonical_path).is_some() {
+            let interrupted = should_stop(&source.canonical_path)?;
             files.push(source.canonical_path.clone());
+            return Ok(FileCollection {
+                paths: files,
+                interrupted,
+            });
         }
-        return Ok(files);
+        return Ok(FileCollection {
+            paths: files,
+            interrupted: false,
+        });
     }
-    walk_directory(&source.canonical_path, &mut files, events, scan_job_id)?;
-    Ok(files)
+    let interrupted = walk_directory(
+        &source.canonical_path,
+        &mut files,
+        events,
+        scan_job_id,
+        should_stop,
+    )?;
+    Ok(FileCollection {
+        paths: files,
+        interrupted,
+    })
 }
 
 fn source_is_gone(path: &str) -> bool {
@@ -490,79 +738,112 @@ fn source_is_gone(path: &str) -> bool {
     )
 }
 
-fn walk_directory(
+fn walk_directory<F>(
     path: &Path,
     files: &mut Vec<PathBuf>,
     events: &mut Vec<ScanEvent>,
     scan_job_id: &ScanJobId,
-) -> LibraryResult<()> {
-    let entries = fs::read_dir(path).map_err(|error| {
-        LibraryError::new(
-            LibraryErrorCode::PermissionDenied,
-            "directory could not be read",
-        )
-        .retryable()
-        .with_details(json!({ "kind": format!("{:?}", error.kind()) }))
-    })?;
-    for entry in entries {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(_error) => {
-                events.push(ScanEvent {
-                    id: -1,
-                    scan_job_id: scan_job_id.clone(),
-                    document_id: None,
-                    kind: ScanEventKind::Error,
-                    occurred_at_ms: now_unix_ms(),
-                    details: json!({ "code": "DIRECTORY_ENTRY_FAILED" }),
-                });
-                continue;
-            }
-        };
-        let child = entry.path();
-        let metadata = match fs::symlink_metadata(&child) {
-            Ok(metadata) => metadata,
-            Err(_error) => {
-                events.push(ScanEvent {
-                    id: -1,
-                    scan_job_id: scan_job_id.clone(),
-                    document_id: None,
-                    kind: ScanEventKind::Error,
-                    occurred_at_ms: now_unix_ms(),
-                    details: json!({ "displayName": child.file_name().and_then(|name| name.to_str()).unwrap_or("entry"), "code": "METADATA_READ_FAILED" }),
-                });
-                continue;
-            }
-        };
-        if let Some(reason) = exclusion_reason(&child, &metadata) {
-            events.push(ScanEvent {
-                id: -1,
-                scan_job_id: scan_job_id.clone(),
-                document_id: None,
-                kind: ScanEventKind::Skipped,
-                occurred_at_ms: now_unix_ms(),
-                details: json!({ "displayName": child.file_name().and_then(|name| name.to_str()).unwrap_or("entry"), "reason": reason }),
-            });
-            continue;
-        }
-        if metadata.is_dir() {
-            walk_directory(&child, files, events, scan_job_id)?;
-        } else if metadata.is_file() {
-            if format_from_path(&child).is_some() {
-                files.push(child);
-            } else {
+    should_stop: &mut F,
+) -> LibraryResult<bool>
+where
+    F: FnMut(&Path) -> LibraryResult<bool>,
+{
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(error) => {
+            // A broad scan should keep walking when one protected directory is
+            // unreadable. The event is retained for the task summary while the
+            // rest of the source continues in the background.
+            if events.len() < MAX_SCAN_EVENT_DETAILS {
                 events.push(ScanEvent {
                     id: -1,
                     scan_job_id: scan_job_id.clone(),
                     document_id: None,
                     kind: ScanEventKind::Skipped,
                     occurred_at_ms: now_unix_ms(),
-                    details: json!({ "displayName": child.file_name().and_then(|name| name.to_str()).unwrap_or("file"), "reason": "unsupported_format" }),
+                    details: json!({
+                        "displayName": path.file_name().and_then(|name| name.to_str()).unwrap_or("directory"),
+                        "code": "DIRECTORY_READ_SKIPPED",
+                        "kind": format!("{:?}", error.kind()),
+                    }),
                 });
+            }
+            return Ok(false);
+        }
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_error) => {
+                if events.len() < MAX_SCAN_EVENT_DETAILS {
+                    events.push(ScanEvent {
+                        id: -1,
+                        scan_job_id: scan_job_id.clone(),
+                        document_id: None,
+                        kind: ScanEventKind::Error,
+                        occurred_at_ms: now_unix_ms(),
+                        details: json!({ "code": "DIRECTORY_ENTRY_FAILED" }),
+                    });
+                }
+                continue;
+            }
+        };
+        let child = entry.path();
+        if should_stop(&child)? {
+            return Ok(true);
+        }
+        let metadata = match fs::symlink_metadata(&child) {
+            Ok(metadata) => metadata,
+            Err(_error) => {
+                if events.len() < MAX_SCAN_EVENT_DETAILS {
+                    events.push(ScanEvent {
+                    id: -1,
+                    scan_job_id: scan_job_id.clone(),
+                    document_id: None,
+                    kind: ScanEventKind::Error,
+                    occurred_at_ms: now_unix_ms(),
+                    details: json!({ "displayName": child.file_name().and_then(|name| name.to_str()).unwrap_or("entry"), "code": "METADATA_READ_FAILED" }),
+                    });
+                }
+                continue;
+            }
+        };
+        if let Some(reason) = exclusion_reason(&child, &metadata) {
+            if events.len() < MAX_SCAN_EVENT_DETAILS {
+                events.push(ScanEvent {
+                    id: -1,
+                    scan_job_id: scan_job_id.clone(),
+                    document_id: None,
+                    kind: ScanEventKind::Skipped,
+                    occurred_at_ms: now_unix_ms(),
+                    details: json!({ "displayName": child.file_name().and_then(|name| name.to_str()).unwrap_or("entry"), "reason": reason }),
+                });
+            }
+            continue;
+        }
+        if metadata.is_dir() {
+            if walk_directory(&child, files, events, scan_job_id, should_stop)? {
+                return Ok(true);
+            }
+        } else if metadata.is_file() {
+            if format_from_path(&child).is_some() {
+                files.push(child);
+            } else {
+                if events.len() < MAX_SCAN_EVENT_DETAILS {
+                    events.push(ScanEvent {
+                        id: -1,
+                        scan_job_id: scan_job_id.clone(),
+                        document_id: None,
+                        kind: ScanEventKind::Skipped,
+                        occurred_at_ms: now_unix_ms(),
+                        details: json!({ "displayName": child.file_name().and_then(|name| name.to_str()).unwrap_or("file"), "reason": "unsupported_format" }),
+                    });
+                }
+                continue;
             }
         }
     }
-    Ok(())
+    Ok(false)
 }
 
 fn hash_file(path: &Path) -> LibraryResult<String> {

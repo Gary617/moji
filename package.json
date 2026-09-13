@@ -12,21 +12,20 @@
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "test:editor-poc": "node --experimental-strip-types scripts/run-editor-poc.ts",
-    "test:editor-poc:tauri": "node scripts/run-tauri-editor-poc.mjs",
     "generate:office-fixtures": "node scripts/generate-office-fixtures.mjs",
     "test:watch": "vitest",
-    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --no-default-features",
-    "build:desktop": "tauri build --features secure-db",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "build:desktop": "tauri build",
     "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",
+    "docx-preview": "0.4.0",
+    "fflate": "0.8.2",
     "lucide-react": "1.32.0",
     "pdfjs-dist": "6.2.108",
     "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "zetajs": "1.2.0"
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.11.4",

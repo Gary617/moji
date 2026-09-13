@@ -8,6 +8,11 @@ export default defineConfig({
     host: "127.0.0.1",
     port: 1420,
     strictPort: true,
+    // Rust build output is not frontend source and can contain thousands of files.
+    // Watching it on Windows can starve Vite's request handler during Tauri dev.
+    watch: {
+      ignored: ["**/src-tauri/**"],
+    },
     headers: {
       "Cross-Origin-Opener-Policy": "same-origin",
       "Cross-Origin-Embedder-Policy": "require-corp",

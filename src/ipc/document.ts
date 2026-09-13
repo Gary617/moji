@@ -22,6 +22,7 @@ export interface DocumentOpenResult {
   expectedSha256: string;
   content: string | null;
   binaryContent: string | null;
+  binaryMediaType: string | null;
   capabilities: DocumentCapabilities;
   sourceLocator: SourceLocator;
   warnings: string[];
@@ -32,6 +33,14 @@ export interface DocumentSaveResult {
   snapshotId: string;
   newSha256: string;
   targetPath: string | null;
+  sourcePreserved: boolean;
+}
+
+export interface DocumentSaveAsResult {
+  documentId: string;
+  cancelled: boolean;
+  targetName: string | null;
+  newSha256: string | null;
   sourcePreserved: boolean;
 }
 
@@ -76,8 +85,23 @@ export function openDocument(documentId: string, mode: DocumentMode): Promise<Ip
   return call("document_open", { documentId, mode });
 }
 
+export function openDocumentExternal(documentId: string): Promise<IpcResponse<void>> {
+  return call("document_open_external", { documentId });
+}
+
 export function saveDocument(documentId: string, expectedSha256: string, content: string, mode: DocumentMode): Promise<IpcResponse<DocumentSaveResult>> {
   return call("document_save", { documentId, expectedSha256, content, mode });
+}
+
+export function saveBinaryDocument(documentId: string, expectedSha256: string, binaryContent: string, mode: DocumentMode): Promise<IpcResponse<DocumentSaveResult>> {
+  return call("document_save_binary", { documentId, expectedSha256, binaryContent, mode });
+}
+
+export function saveDocumentAs(
+  documentId: string,
+  payload: { content: string; binaryContent?: never } | { content?: never; binaryContent: string },
+): Promise<IpcResponse<DocumentSaveAsResult>> {
+  return call("document_save_as", { documentId, ...payload });
 }
 
 export function closeDocument(documentId: string): Promise<IpcResponse<void>> {

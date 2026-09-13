@@ -18,6 +18,11 @@ export interface ContextRequest {
   maxChars?: number;
 }
 
+export interface AiConversationMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export interface ContextSource {
   documentId: string;
   displayName: string;
@@ -40,12 +45,16 @@ export interface AiChatRequest extends ContextRequest {
   permission: AiPermission;
   confirmed: boolean;
   authorizedDocumentIds?: string[];
+  /** Recent turns from this selected document, used to resolve follow-up requests. */
+  conversation?: AiConversationMessage[];
 }
 
 export type AiStreamEvent =
   | { kind: "textDelta"; text: string }
   | { kind: "toolRequest"; callId: string; name: string; arguments: unknown }
-  | { kind: "completed"; inputTokens: number | null; outputTokens: number | null }
+  | { kind: "proposedChange"; proposalId: string; documentId: string; permission: AiPermission; expectedSha256: string; oldContent: string; newContent: string }
+  | { kind: "writebackStatus"; proposalId: string; documentId: string; status: "started" | "applied" | "failed"; message: string; code: string | null }
+  | { kind: "completed"; responseId: string | null; inputTokens: number | null; outputTokens: number | null }
   | { kind: "error"; code: string; message: string; retryable: boolean };
 
 export interface AiChatResult {
@@ -60,9 +69,22 @@ export interface AiChangeRequest {
   permission: AiPermission;
   documentId: string;
   expectedSha256: string;
+  /** Server verifies this against the stored proposal before applying it. */
+  oldContent?: string;
   content: string;
   approved: boolean;
+  changeId?: string;
   authorizedDocumentIds?: string[];
+}
+
+export interface AiCancelResult {
+  sessionId: string;
+  cancelled: boolean;
+}
+
+export interface AiRejectChangeResult {
+  changeId: string;
+  rejected: boolean;
 }
 
 export interface AiActionRecord {
@@ -111,6 +133,14 @@ export function chatWithAiStream(
 
 export function applyAiChange(request: AiChangeRequest): Promise<IpcResponse<AiChangeResult>> {
   return call("ai_apply_change", request);
+}
+
+export function cancelAiChat(sessionId: string): Promise<IpcResponse<AiCancelResult>> {
+  return call("ai_cancel", { sessionId });
+}
+
+export function rejectAiChange(sessionId: string, changeId: string): Promise<IpcResponse<AiRejectChangeResult>> {
+  return call("ai_reject_change", { sessionId, changeId });
 }
 
 export function listAiActions(sessionId?: string): Promise<IpcResponse<AiActionRecord[]>> {

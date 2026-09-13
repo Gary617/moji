@@ -1,7 +1,7 @@
 import type { DocumentFormat } from "../ipc/library";
 import type { DocumentCapabilities, DocumentMode, DocumentOpenResult } from "../ipc/document";
 
-export type ViewerKind = "office" | "pdf" | "text" | "read-only";
+export type ViewerKind = "office" | "pdf" | "text" | "image" | "read-only";
 
 export interface AdapterDescriptor {
   kind: ViewerKind;

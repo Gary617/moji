@@ -14,11 +14,12 @@
       {
         "label": "main",
         "title": "墨集",
-        "width": 960,
-        "height": 680,
-        "minWidth": 640,
-        "minHeight": 520,
-        "center": true
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 720,
+        "center": true,
+        "maximized": true
       }
     ],
     "security": {

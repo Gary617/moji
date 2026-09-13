@@ -24,11 +24,18 @@ pub(crate) fn authorize_source(input: impl AsRef<Path>) -> LibraryResult<Authori
         .with_details(serde_json::json!({ "kind": format!("{:?}", error.kind()) }))
     })?;
     if let Some(reason) = exclusion_reason(&canonical_path, &metadata) {
-        return Err(LibraryError::new(
-            LibraryErrorCode::ExcludedPath,
-            "this source is excluded by default",
-        )
-        .with_details(serde_json::json!({ "reason": reason })));
+        // Windows marks volume roots (for example `D:\\`) as hidden/system.
+        // The root itself is a valid user-selected source; protected folders
+        // below it remain excluded by `exclusion_reason` during traversal.
+        let volume_root_attributes =
+            is_volume_root(&canonical_path) && matches!(reason, "hidden" | "system");
+        if !volume_root_attributes {
+            return Err(LibraryError::new(
+                LibraryErrorCode::ExcludedPath,
+                "this source is excluded by default",
+            )
+            .with_details(serde_json::json!({ "reason": reason })));
+        }
     }
     let kind = if metadata.is_dir() {
         SourceKind::Directory
@@ -44,13 +51,38 @@ pub(crate) fn authorize_source(input: impl AsRef<Path>) -> LibraryResult<Authori
         .file_name()
         .and_then(|name| name.to_str())
         .filter(|name| !name.is_empty())
-        .unwrap_or("source")
-        .to_owned();
+        .map(str::to_owned)
+        .unwrap_or_else(|| source_display_name(&canonical_path));
     Ok(AuthorizedSource {
         kind,
         canonical_path,
         display_name,
     })
+}
+
+fn is_volume_root(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        path.components().count() <= 2
+    }
+    #[cfg(not(windows))]
+    {
+        path == Path::new("/")
+    }
+}
+
+fn source_display_name(path: &Path) -> String {
+    #[cfg(windows)]
+    {
+        let value = path.to_string_lossy();
+        let mut chars = value.chars();
+        if let (Some(letter), Some(':')) = (chars.next(), chars.next())
+            && letter.is_ascii_alphabetic()
+        {
+            return format!("{letter}盘");
+        }
+    }
+    "source".to_owned()
 }
 
 pub(crate) fn authorize_candidate(
@@ -88,16 +120,15 @@ fn reject_reparse_path(path: &Path) -> LibraryResult<()> {
     // path loses the evidence that a link/reparse point was used and leaves a TOCTOU gap.
     let mut current = Some(path);
     while let Some(item) = current {
-        if let Ok(metadata) = fs::symlink_metadata(item) {
-            if let Some(reason) = exclusion_reason(item, &metadata) {
-                if reason == "symlink" || reason == "junction_or_reparse_point" {
-                    return Err(LibraryError::new(
-                        LibraryErrorCode::ExcludedPath,
-                        "links and reparse points are excluded by default",
-                    )
-                    .with_details(serde_json::json!({ "reason": reason })));
-                }
-            }
+        if let Ok(metadata) = fs::symlink_metadata(item)
+            && let Some(reason) = exclusion_reason(item, &metadata)
+            && (reason == "symlink" || reason == "junction_or_reparse_point")
+        {
+            return Err(LibraryError::new(
+                LibraryErrorCode::ExcludedPath,
+                "links and reparse points are excluded by default",
+            )
+            .with_details(serde_json::json!({ "reason": reason })));
         }
         current = item.parent();
     }
@@ -108,7 +139,7 @@ pub(crate) fn canonical_path_string(path: &Path) -> String {
     let value = path.to_string_lossy().replace('/', "\\");
     #[cfg(windows)]
     {
-        return value.trim_end_matches('\\').to_ascii_lowercase();
+        value.trim_end_matches('\\').to_ascii_lowercase()
     }
     #[cfg(not(windows))]
     value.trim_end_matches('/').to_owned()
@@ -117,6 +148,7 @@ pub(crate) fn canonical_path_string(path: &Path) -> String {
 pub(crate) fn format_from_path(path: &Path) -> Option<DocumentFormat> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     match extension.as_str() {
+        "doc" => Some(DocumentFormat::Doc),
         "docx" => Some(DocumentFormat::Docx),
         "pptx" => Some(DocumentFormat::Pptx),
         "xlsx" => Some(DocumentFormat::Xlsx),
@@ -124,10 +156,6 @@ pub(crate) fn format_from_path(path: &Path) -> Option<DocumentFormat> {
         "md" | "markdown" => Some(DocumentFormat::Markdown),
         "txt" => Some(DocumentFormat::Text),
         "csv" => Some(DocumentFormat::Csv),
-        "png" => Some(DocumentFormat::Png),
-        "jpg" | "jpeg" => Some(DocumentFormat::Jpg),
-        "tif" | "tiff" => Some(DocumentFormat::Tiff),
-        "bmp" => Some(DocumentFormat::Bmp),
         _ => None,
     }
 }
@@ -212,7 +240,7 @@ fn is_within(root: &Path, candidate: &Path, kind: SourceKind) -> bool {
     {
         let root = canonical_path_string(root);
         let candidate = canonical_path_string(candidate);
-        return candidate == root || candidate.starts_with(&(root + "\\"));
+        candidate == root || candidate.starts_with(&(root + "\\"))
     }
     #[cfg(not(windows))]
     {
@@ -235,7 +263,7 @@ fn paths_equal(left: &Path, right: &Path) -> bool {
 mod tests {
     use std::{
         fs,
-        path::PathBuf,
+        path::{Path, PathBuf},
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -335,5 +363,12 @@ mod tests {
             canonical_path_string(PathBuf::from("C:/docs/report.docx").as_path())
                 .contains("report.docx")
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn labels_volume_roots_without_treating_them_as_excluded_sources() {
+        assert!(super::is_volume_root(Path::new(r"D:\")));
+        assert_eq!(super::source_display_name(Path::new(r"D:\")), "D盘");
     }
 }

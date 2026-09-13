@@ -1,8 +1,9 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 
 import type { IpcResponse } from "./types";
 
 export type DocumentFormat =
+  | "doc"
   | "docx"
   | "pptx"
   | "xlsx"
@@ -20,15 +21,63 @@ export type DocumentStatus = "present" | "missing" | "error";
 export interface SourceRootRecord {
   id: string;
   kind: "directory" | "single_file";
-  canonicalPath: string;
   displayName: string;
   createdAtMs: number;
+}
+
+export interface SourceRegistration {
+  source: SourceRootRecord;
+  created: boolean;
+}
+
+export interface SourcePickerResult {
+  cancelled: boolean;
+  source: SourceRegistration | null;
+}
+
+export interface CommonLocationScanResult {
+  sources: SourceRootRecord[];
+  jobs: ScanJobRecord[];
+  skipped: string[];
+}
+
+export interface ScanFolderNode {
+  relativePath: string;
+  displayName: string;
+  depth: number;
+  fileCount: number;
+  children: ScanFolderNode[];
+  hasMore: boolean;
+}
+
+export interface ScanRootPreview {
+  sourceId: string;
+  label: string;
+  root: ScanFolderNode;
+}
+
+export interface ScanPreviewResult {
+  roots: ScanRootPreview[];
+  skipped: string[];
+  maxDepth: number;
+}
+
+export type ScanPreviewEvent =
+  | { kind: "started"; rootCount: number }
+  | { kind: "rootStarted"; label: string; rootIndex: number; rootCount: number }
+  | { kind: "folder"; label: string; relativePath: string; foldersScanned: number; filesFound: number }
+  | { kind: "completed"; foldersScanned: number; filesFound: number };
+
+export interface ScanSelection {
+  sourceId: string;
+  relativePaths: string[];
 }
 
 export interface DocumentRecord {
   id: string;
   sourceRootId: string;
-  canonicalPath: string;
+  /** Normalized local path used for the file hover tooltip. */
+  path?: string;
   displayName: string;
   format: DocumentFormat;
   sizeBytes: number;
@@ -119,6 +168,28 @@ export interface OcrModelStatus {
   missingAssets: string[];
 }
 
+export interface ScanJobRecord {
+  id: string;
+  sourceRootId: string;
+  state: "queued" | "running" | "paused" | "cancelled" | "failed" | "completed";
+  scannedCount: number;
+  totalCount: number;
+  currentFileName: string | null;
+  changedCount: number;
+  failedCount: number;
+  retryCount: number;
+  errorCode: string | null;
+  createdAtMs: number;
+  startedAtMs: number | null;
+  completedAtMs: number | null;
+  updatedAtMs: number;
+}
+
+export interface ScanSummary {
+  job: ScanJobRecord;
+  events: unknown[];
+}
+
 export interface SearchDocument {
   document: DocumentRecord;
   snippets: SearchSnippet[];
@@ -150,12 +221,6 @@ export interface SearchResults {
   queryTimeMs: number;
 }
 
-export interface IndexRebuildSummary {
-  indexedCount: number;
-  failedCount: number;
-  durationMs: number;
-}
-
 async function call<T>(command: string, request?: unknown): Promise<IpcResponse<T>> {
   try {
     return await invoke<IpcResponse<T>>(command, request === undefined ? undefined : { request });
@@ -180,6 +245,64 @@ export function listSources(): Promise<IpcResponse<SourceRootRecord[]>> {
   return call("library_list_sources");
 }
 
+export function pickSourceFolder(): Promise<IpcResponse<SourcePickerResult>> {
+  return call("library_pick_source_folder");
+}
+
+export function pickSourceFile(): Promise<IpcResponse<SourcePickerResult>> {
+  return call("library_pick_source_file");
+}
+
+export function scanCommonLocations(): Promise<IpcResponse<CommonLocationScanResult>> {
+  return call("library_scan_common_locations");
+}
+
+export function previewCommonLocations(onEvent?: (event: ScanPreviewEvent) => void): Promise<IpcResponse<ScanPreviewResult>> {
+  const channel = new Channel<ScanPreviewEvent>();
+  channel.onmessage = (event) => onEvent?.(event);
+  return invoke<IpcResponse<ScanPreviewResult>>("library_preview_common_locations", { onEvent: channel }).catch(() => ({
+    status: "error",
+    error: { code: "IPC_TRANSPORT_ERROR", message: "无法连接本地资料库", retryable: true, details: null },
+  }));
+}
+
+export function previewFullDisk(onEvent?: (event: ScanPreviewEvent) => void): Promise<IpcResponse<ScanPreviewResult>> {
+  const channel = new Channel<ScanPreviewEvent>();
+  channel.onmessage = (event) => onEvent?.(event);
+  return invoke<IpcResponse<ScanPreviewResult>>("library_preview_full_disk", { onEvent: channel }).catch(() => ({
+    status: "error",
+    error: { code: "IPC_TRANSPORT_ERROR", message: "无法连接本地资料库", retryable: true, details: null },
+  }));
+}
+
+export function startSelectedScan(selections: ScanSelection[]): Promise<IpcResponse<CommonLocationScanResult>> {
+  return call("library_start_selected_scan", { selections });
+}
+
+export function startScan(sourceRootId: string): Promise<IpcResponse<ScanSummary>> {
+  return call("library_start_scan", { sourceRootId });
+}
+
+export function scanStatus(scanJobId: string): Promise<IpcResponse<ScanJobRecord>> {
+  return call("library_scan_status", { scanJobId });
+}
+
+export function pauseScan(scanJobId: string): Promise<IpcResponse<ScanJobRecord>> {
+  return call("library_pause_scan", { scanJobId });
+}
+
+export function resumeScan(scanJobId: string): Promise<IpcResponse<ScanJobRecord>> {
+  return call("library_resume_scan", { scanJobId });
+}
+
+export function cancelScan(scanJobId: string): Promise<IpcResponse<ScanJobRecord>> {
+  return call("library_cancel_scan", { scanJobId });
+}
+
+export function retryScan(scanJobId: string): Promise<IpcResponse<ScanJobRecord>> {
+  return call("library_retry_scan", { scanJobId });
+}
+
 export function listCollections(): Promise<IpcResponse<CollectionRecord[]>> {
   return call("library_list_collections");
 }
@@ -200,6 +323,10 @@ export function setFavorite(documentId: string, favorite: boolean): Promise<IpcR
   return call("library_set_favorite", { documentId, favorite });
 }
 
+export function removeDocument(documentId: string): Promise<IpcResponse<void>> {
+  return call("library_remove_document", { documentId });
+}
+
 export function setCollectionMembership(
   documentId: string,
   relationId: string,
@@ -218,10 +345,6 @@ export function setTagMembership(
 
 export function recordRecentUse(documentId: string): Promise<IpcResponse<void>> {
   return call("library_record_recent_use", { documentId });
-}
-
-export function rebuildSearchIndex(): Promise<IpcResponse<IndexRebuildSummary>> {
-  return call("library_rebuild_search_index");
 }
 
 export function ocrModelStatus(): Promise<IpcResponse<OcrModelStatus>> {

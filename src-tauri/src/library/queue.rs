@@ -2,7 +2,7 @@ use super::{
     database::LibraryDatabase,
     model::{
         LibraryError, LibraryErrorCode, LibraryResult, ScanJobId, ScanJobRecord, ScanJobState,
-        SourceRootId, invalid_state_error,
+        ScanJobUpdate, SourceRootId, invalid_state_error,
     },
 };
 
@@ -19,6 +19,12 @@ impl<'a> ScanQueue<'a> {
         &mut self,
         source_root_id: &SourceRootId,
     ) -> LibraryResult<ScanJobRecord> {
+        if let Some(active) = self.database.active_scan_job(source_root_id)? {
+            if active.state == ScanJobState::Paused {
+                return self.resume(&active.id);
+            }
+            return Ok(active);
+        }
         self.database.create_scan_job(source_root_id)
     }
 
@@ -75,15 +81,19 @@ impl<'a> ScanQueue<'a> {
                 job.state,
             ));
         }
-        self.database.update_job(
-            job_id,
-            ScanJobState::Queued,
-            job.scanned_count,
-            job.changed_count,
-            job.failed_count,
-            job.retry_count.saturating_add(1),
-            None,
-        )
+        self.database.update_job(ScanJobUpdate {
+            id: job_id,
+            state: ScanJobState::Queued,
+            scanned_count: job.scanned_count,
+            total_count: job.total_count,
+            current_file_name: job.current_file_name.as_deref(),
+            changed_count: job.changed_count,
+            failed_count: job.failed_count,
+            retry_count: job.retry_count.saturating_add(1),
+            error_code: None,
+            started_at_ms: job.started_at_ms,
+            completed_at_ms: None,
+        })
     }
 
     pub(crate) fn current(&self, job_id: &ScanJobId) -> LibraryResult<ScanJobRecord> {
@@ -104,19 +114,24 @@ impl<'a> ScanQueue<'a> {
         if !expected.contains(&job.state) {
             return Err(invalid_state_error(expected, job.state));
         }
-        self.database.update_job(
-            job_id,
-            next,
-            job.scanned_count,
-            job.changed_count,
-            job.failed_count,
-            if increment_retry {
+        self.database.update_job(ScanJobUpdate {
+            id: job_id,
+            state: next,
+            scanned_count: job.scanned_count,
+            total_count: job.total_count,
+            current_file_name: job.current_file_name.as_deref(),
+            changed_count: job.changed_count,
+            failed_count: job.failed_count,
+            retry_count: if increment_retry {
                 job.retry_count.saturating_add(1)
             } else {
                 job.retry_count
             },
             error_code,
-        )
+            started_at_ms: job.started_at_ms,
+            completed_at_ms: (next == ScanJobState::Cancelled)
+                .then_some(crate::library::model::now_unix_ms()),
+        })
     }
 }
 
@@ -137,6 +152,7 @@ mod tests {
         let mut queue = ScanQueue::new(&mut database);
         let queued = queue.enqueue(&source.source.id).unwrap();
         assert_eq!(queued.state, ScanJobState::Queued);
+        assert_eq!(queue.enqueue(&source.source.id).unwrap().id, queued.id);
         assert_eq!(queue.pause(&queued.id).unwrap().state, ScanJobState::Paused);
         assert_eq!(
             queue.resume(&queued.id).unwrap().state,
@@ -176,5 +192,20 @@ mod tests {
             .resume(&queued.id)
             .expect_err("queued job cannot resume");
         assert_eq!(error.code, "INVALID_JOB_STATE");
+    }
+
+    #[test]
+    fn enqueuing_a_paused_source_resumes_the_existing_job() {
+        let mut database = LibraryDatabase::in_memory().unwrap();
+        let source = database
+            .register_source(SourceKind::Directory, "C:/authorized", "authorized")
+            .unwrap();
+        let mut queue = ScanQueue::new(&mut database);
+        let queued = queue.enqueue(&source.source.id).unwrap();
+        queue.pause(&queued.id).unwrap();
+
+        let resumed = queue.enqueue(&source.source.id).unwrap();
+        assert_eq!(resumed.id, queued.id);
+        assert_eq!(resumed.state, ScanJobState::Queued);
     }
 }

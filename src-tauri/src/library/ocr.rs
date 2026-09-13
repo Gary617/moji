@@ -13,8 +13,9 @@ use sha2::{Digest, Sha256};
 use super::{
     model::{
         DocumentFormat, DocumentFragment, DocumentId, DocumentStatus, LibraryError,
-        LibraryErrorCode, LibraryResult, OcrBoundingBox, OcrJobId, OcrJobRecord, OcrModelStatus,
-        OcrPoint, OcrTextBox, ScanJobState, invalid_state_error,
+        LibraryErrorCode, LibraryResult, OcrBoundingBox, OcrJobId, OcrJobRecord, OcrJobUpdate,
+        OcrModelStatus, OcrPageUpdate, OcrPoint, OcrTextBox, ScanJobState, SourceLocator,
+        invalid_state_error,
     },
     scanner::LibraryService,
 };
@@ -97,16 +98,16 @@ impl LibraryService {
                 job.state,
             ));
         }
-        self.database.update_ocr_job(
-            job_id,
-            ScanJobState::Paused,
-            job.page_count,
-            job.processed_count,
-            job.failed_count,
-            job.retry_count,
-            None,
-            job.duration_ms,
-        )
+        self.database.update_ocr_job(OcrJobUpdate {
+            id: job_id,
+            state: ScanJobState::Paused,
+            page_count: job.page_count,
+            processed_count: job.processed_count,
+            failed_count: job.failed_count,
+            retry_count: job.retry_count,
+            error_code: None,
+            duration_ms: job.duration_ms,
+        })
     }
 
     pub(crate) fn resume_ocr(&mut self, job_id: &OcrJobId) -> LibraryResult<OcrJobRecord> {
@@ -114,16 +115,16 @@ impl LibraryService {
         if job.state != ScanJobState::Paused {
             return Err(invalid_state_error(&[ScanJobState::Paused], job.state));
         }
-        self.database.update_ocr_job(
-            job_id,
-            ScanJobState::Queued,
-            job.page_count,
-            job.processed_count,
-            job.failed_count,
-            job.retry_count,
-            None,
-            job.duration_ms,
-        )
+        self.database.update_ocr_job(OcrJobUpdate {
+            id: job_id,
+            state: ScanJobState::Queued,
+            page_count: job.page_count,
+            processed_count: job.processed_count,
+            failed_count: job.failed_count,
+            retry_count: job.retry_count,
+            error_code: None,
+            duration_ms: job.duration_ms,
+        })
     }
 
     pub(crate) fn cancel_ocr(&mut self, job_id: &OcrJobId) -> LibraryResult<OcrJobRecord> {
@@ -145,16 +146,16 @@ impl LibraryService {
                 job.state,
             ));
         }
-        self.database.update_ocr_job(
-            job_id,
-            ScanJobState::Cancelled,
-            job.page_count,
-            job.processed_count,
-            job.failed_count,
-            job.retry_count,
-            Some("OCR_CANCELLED"),
-            job.duration_ms,
-        )
+        self.database.update_ocr_job(OcrJobUpdate {
+            id: job_id,
+            state: ScanJobState::Cancelled,
+            page_count: job.page_count,
+            processed_count: job.processed_count,
+            failed_count: job.failed_count,
+            retry_count: job.retry_count,
+            error_code: Some("OCR_CANCELLED"),
+            duration_ms: job.duration_ms,
+        })
     }
 
     pub(crate) fn retry_ocr(&mut self, job_id: &OcrJobId) -> LibraryResult<OcrJobRecord> {
@@ -165,16 +166,16 @@ impl LibraryService {
                 job.state,
             ));
         }
-        self.database.update_ocr_job(
-            job_id,
-            ScanJobState::Queued,
-            job.page_count,
-            job.processed_count,
-            job.failed_count,
-            job.retry_count.saturating_add(1),
-            None,
-            None,
-        )
+        self.database.update_ocr_job(OcrJobUpdate {
+            id: job_id,
+            state: ScanJobState::Queued,
+            page_count: job.page_count,
+            processed_count: job.processed_count,
+            failed_count: job.failed_count,
+            retry_count: job.retry_count.saturating_add(1),
+            error_code: None,
+            duration_ms: None,
+        })
     }
 
     pub(crate) fn ocr_job(&self, job_id: &OcrJobId) -> LibraryResult<OcrJobRecord> {
@@ -188,7 +189,38 @@ impl LibraryService {
         document_id: &DocumentId,
         page: Option<u32>,
     ) -> LibraryResult<Vec<DocumentFragment>> {
-        self.database.document_fragments(document_id, page)
+        let fragments = self.database.document_fragments(document_id, page)?;
+        if !fragments.is_empty() {
+            return Ok(fragments);
+        }
+        let document = self.document(document_id)?;
+        let indexed_text = self.database.document_indexed_text(document_id)?;
+        if indexed_text.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        // OCR is optional for DOCX and other text-native documents. Their
+        // scanner-extracted body is already available locally, so expose it as
+        // a single document-level fragment for AI context construction.
+        Ok(vec![DocumentFragment {
+            document_id: document_id.clone(),
+            page: page.unwrap_or(1),
+            source: "indexed_text".to_owned(),
+            text: indexed_text,
+            confidence: None,
+            width: 0,
+            height: 0,
+            rotation_degrees: 0,
+            boxes: Vec::new(),
+            source_locator: SourceLocator {
+                kind: "document".to_owned(),
+                page: None,
+                slide: None,
+                paragraph: matches!(document.format, DocumentFormat::Docx | DocumentFormat::Markdown | DocumentFormat::Text | DocumentFormat::Csv).then_some(1),
+                bounding_box: None,
+                available: true,
+                reason: Some("使用扫描时提取的正文作为 AI 上下文".to_owned()),
+            },
+        }])
     }
 
     pub(crate) fn run_ocr_job(&mut self, job_id: &OcrJobId) -> LibraryResult<OcrJobRecord> {
@@ -197,32 +229,32 @@ impl LibraryService {
         if job.state != ScanJobState::Queued {
             return Err(invalid_state_error(&[ScanJobState::Queued], job.state));
         }
-        job = self.database.update_ocr_job(
-            job_id,
-            ScanJobState::Running,
-            job.page_count,
-            job.processed_count,
-            job.failed_count,
-            job.retry_count,
-            None,
-            None,
-        )?;
+        job = self.database.update_ocr_job(OcrJobUpdate {
+            id: job_id,
+            state: ScanJobState::Running,
+            page_count: job.page_count,
+            processed_count: job.processed_count,
+            failed_count: job.failed_count,
+            retry_count: job.retry_count,
+            error_code: None,
+            duration_ms: None,
+        })?;
         let result = self.run_ocr_job_inner(&job, started);
         match result {
             Ok(job) => Ok(job),
             Err(error) => {
                 let current = self.ocr_job(job_id)?;
                 if current.state == ScanJobState::Running {
-                    let _ = self.database.update_ocr_job(
-                        job_id,
-                        ScanJobState::Failed,
-                        current.page_count,
-                        current.processed_count,
-                        current.failed_count.saturating_add(1),
-                        current.retry_count,
-                        Some(&error.code),
-                        Some(started.elapsed().as_millis() as u64),
-                    );
+                    let _ = self.database.update_ocr_job(OcrJobUpdate {
+                        id: job_id,
+                        state: ScanJobState::Failed,
+                        page_count: current.page_count,
+                        processed_count: current.processed_count,
+                        failed_count: current.failed_count.saturating_add(1),
+                        retry_count: current.retry_count,
+                        error_code: Some(&error.code),
+                        duration_ms: Some(started.elapsed().as_millis() as u64),
+                    });
                 }
                 Err(error)
             }
@@ -246,7 +278,7 @@ impl LibraryService {
                 "document is not currently available",
             ));
         }
-        let input = PathBuf::from(&document.canonical_path);
+        let input = self.authorized_document_path(&document)?;
         let current_hash = hash_file(&input)?;
         if current_hash != job.input_sha256 {
             return Err(LibraryError::new(
@@ -288,17 +320,17 @@ impl LibraryService {
             if let Some(interrupted) = self.interrupted_ocr_job(&job.id)? {
                 return Ok(interrupted);
             }
-            self.database.replace_ocr_page(
-                &job.document_id,
-                page.page,
-                page.source,
-                &page.text,
-                page.confidence,
-                page.width,
-                page.height,
-                page.rotation_degrees,
-                &page.boxes,
-            )?;
+            self.database.replace_ocr_page(OcrPageUpdate {
+                document_id: &job.document_id,
+                page: page.page,
+                source: page.source,
+                text: &page.text,
+                confidence: page.confidence,
+                width: page.width,
+                height: page.height,
+                rotation_degrees: page.rotation_degrees,
+                boxes: &page.boxes,
+            })?;
             self.database
                 .add_ocr_metric(&job.id, Some(page.page), "text_layer", 0, 0)?;
             self.database
@@ -363,17 +395,17 @@ impl LibraryService {
             }
             let page_started = Instant::now();
             let result = engine.recognize(image)?;
-            self.database.replace_ocr_page(
-                &job.document_id,
+            self.database.replace_ocr_page(OcrPageUpdate {
+                document_id: &job.document_id,
                 page,
-                result.source,
-                &result.text,
-                result.confidence,
-                result.width,
-                result.height,
-                result.rotation_degrees,
-                &result.boxes,
-            )?;
+                source: result.source,
+                text: &result.text,
+                confidence: result.confidence,
+                width: result.width,
+                height: result.height,
+                rotation_degrees: result.rotation_degrees,
+                boxes: &result.boxes,
+            })?;
             self.database.add_ocr_metric(
                 &job.id,
                 Some(page),
@@ -409,16 +441,16 @@ impl LibraryService {
             started.elapsed().as_millis() as u64,
             job.model_bytes,
         )?;
-        self.database.update_ocr_job(
-            &job.id,
-            ScanJobState::Completed,
+        self.database.update_ocr_job(OcrJobUpdate {
+            id: &job.id,
+            state: ScanJobState::Completed,
             page_count,
-            processed,
-            failed,
-            job.retry_count,
-            None,
-            Some(started.elapsed().as_millis() as u64),
-        )
+            processed_count: processed,
+            failed_count: failed,
+            retry_count: job.retry_count,
+            error_code: None,
+            duration_ms: Some(started.elapsed().as_millis() as u64),
+        })
     }
 
     fn interrupted_ocr_job(&self, job_id: &OcrJobId) -> LibraryResult<Option<OcrJobRecord>> {
@@ -525,7 +557,8 @@ fn model_paths(root: &Path) -> LibraryResult<ModelPaths> {
     ];
     let missing = files
         .iter()
-        .filter_map(|(name, path)| (!path.is_file()).then(|| (*name).to_owned()))
+        .filter(|(_, path)| !path.is_file())
+        .map(|(name, _)| (*name).to_owned())
         .collect::<Vec<_>>();
     if !missing.is_empty() {
         return Err(LibraryError::new(
@@ -744,7 +777,36 @@ fn unrotate_point(x: u32, y: u32, rotation_degrees: u32, width: u32, height: u32
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
     use super::{has_effective_text, model_paths, pdf_renderer_path};
+    use crate::library::{model::LibraryErrorCode, scanner::LibraryService};
+
+    struct TempTree(PathBuf);
+
+    impl TempTree {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "moji-ocr-test-{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("system clock should be after epoch")
+                    .as_nanos()
+            ));
+            fs::create_dir_all(&path).expect("test directory should be created");
+            Self(path)
+        }
+    }
+
+    impl Drop for TempTree {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn treats_cjk_and_latin_pdf_text_as_a_valid_text_layer() {
@@ -780,5 +842,80 @@ mod tests {
             .unwrap()
             .len();
         assert_eq!(missing, 4);
+    }
+
+    #[test]
+    fn exposes_scanner_extracted_text_to_ai_when_no_ocr_pages_exist() {
+        let tree = TempTree::new();
+        fs::write(tree.0.join("notes.md"), "这是给 AI 的文档正文。\n第二段内容。")
+            .expect("fixture document should be written");
+        let mut service = LibraryService::in_memory().expect("service should open");
+        let source = service.register_source(&tree.0).expect("source should register");
+        service.scan_source(&source.source.id).expect("source should scan");
+        let document = service
+            .database
+            .documents_for_source(&source.source.id)
+            .expect("documents should load")
+            .pop()
+            .expect("fixture should be indexed");
+
+        let fragments = service
+            .ocr_fragments(&document.id, None)
+            .expect("AI context fragments should load");
+
+        assert_eq!(fragments.len(), 1);
+        assert_eq!(fragments[0].source, "indexed_text");
+        assert!(fragments[0].text.contains("给 AI 的文档正文"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn ocr_revalidates_a_document_replaced_by_a_symlink_after_queueing() {
+        use std::os::windows::fs::symlink_file;
+
+        let tree = TempTree::new();
+        let input = tree.0.join("queued.pdf");
+        fs::write(&input, b"queued").expect("valid document should be created");
+        let outside = tree
+            .0
+            .parent()
+            .expect("temp directory has a parent")
+            .join(format!(
+                "{}-outside.pdf",
+                tree.0
+                    .file_name()
+                    .expect("temp directory has a name")
+                    .to_string_lossy()
+            ));
+        fs::write(&outside, b"outside").expect("outside document should be created");
+
+        let mut service = LibraryService::in_memory().expect("service should open");
+        let source = service
+            .register_source(&tree.0)
+            .expect("source should register");
+        service
+            .scan_source(&source.source.id)
+            .expect("source should scan");
+        let document = service
+            .database
+            .documents_for_source(&source.source.id)
+            .expect("document should be indexed")
+            .pop()
+            .expect("one document should exist");
+        let job = service.enqueue_ocr(&document.id).expect("OCR should queue");
+
+        fs::remove_file(&input).expect("queued input should be removable");
+        if symlink_file(&outside, &input).is_err() {
+            let _ = fs::remove_file(&outside);
+            return;
+        }
+
+        let error = service
+            .run_ocr_job(&job.id)
+            .expect_err("reparse replacement must be rejected before OCR reads it");
+        assert_eq!(error.code, LibraryErrorCode::ExcludedPath.as_str());
+
+        let _ = fs::remove_file(&input);
+        let _ = fs::remove_file(&outside);
     }
 }

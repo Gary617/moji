@@ -12,3 +12,9 @@ _docx_render/
 docs/editor-poc/results.node.*
 .DS_Store
 Thumbs.db
+
+# Build and release artifacts (generate locally or publish via Releases)
+*.exe
+*.msi
+*.zip
+*.dmg
