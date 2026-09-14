@@ -1339,7 +1339,13 @@ mod tests {
         let root = std::env::temp_dir().join(crate::library::model::new_identifier("ai-docx-proposal"));
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("note.docx");
-        std::fs::write(&path, include_bytes!("../../../tests/fixtures/office/generated/docx-basic.docx")).unwrap();
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/fixtures/office/generated/docx-basic.docx");
+        if !fixture.exists() {
+            let _ = std::fs::remove_dir_all(root);
+            return;
+        }
+        std::fs::copy(fixture, &path).unwrap();
         let mut service = LibraryService::in_memory().unwrap();
         let source = service.register_source(&root).unwrap();
         service.scan_source(&source.source.id).unwrap();

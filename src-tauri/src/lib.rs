@@ -29,6 +29,11 @@ fn acquire_single_instance() -> Option<windows_sys::Win32::Foundation::HANDLE> {
 }
 
 pub fn run() {
+    // reqwest is intentionally built without an implicit TLS provider so the
+    // desktop binary does not depend on aws-lc/NASM. Register ring once before
+    // any blocking HTTPS client is constructed; otherwise rustls panics at
+    // runtime with a missing process-level CryptoProvider.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     #[cfg(windows)]
     let _single_instance = match acquire_single_instance() {
         Some(handle) => handle,

@@ -319,6 +319,11 @@ impl<C: CredentialStore> OpenAiResponsesProvider<C> {
         base_url: &str,
         model: &str,
     ) -> Result<Self, AiError> {
+        // reqwest uses rustls-no-provider to keep the desktop bundle small.
+        // Register the bundled ring implementation before any Client is built;
+        // otherwise reqwest's blocking runtime panics instead of returning an
+        // ordinary connection error.
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let endpoint = normalize_responses_endpoint(base_url)?;
         let normalized_base = base_url.trim().trim_end_matches('/').to_ascii_lowercase();
         let prefer_chat_completions = normalized_base.ends_with("/chat/completions");
@@ -1073,9 +1078,13 @@ mod tests {
                 response_id: Some("response-1".into()), input_tokens: Some(12), output_tokens: Some(8),
             },
         ];
-        let expected: Value = serde_json::from_str(include_str!(
-            "../../../tests/fixtures/ai-stream-events.json"
-        )).unwrap();
+        let expected = json!([
+            {"kind":"textDelta","text":"Ready"},
+            {"kind":"toolRequest","callId":"call-1","name":"propose_edit","arguments":{}},
+            {"kind":"proposedChange","proposalId":"proposal-1","documentId":"doc-ai","permission":"autonomous","expectedSha256":"hash-before","oldContent":"before","newContent":"after"},
+            {"kind":"writebackStatus","proposalId":"proposal-1","documentId":"doc-ai","status":"applied","message":"Saved","code":null},
+            {"kind":"completed","responseId":"response-1","inputTokens":12,"outputTokens":8}
+        ]);
         assert_eq!(serde_json::to_value(events).unwrap(), expected);
     }
 

@@ -22,6 +22,7 @@ lopdf = "=0.38.0"
 quick-xml = "=0.41.0"
 ppocr-rs = { version = "=0.7.3", features = ["example-dynamic"] }
 reqwest = { version = "=0.13.4", default-features = false, features = ["blocking", "json", "rustls-no-provider"] }
+rustls = { version = "=0.23.43", default-features = false, features = ["std", "ring", "tls12"] }
 rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
